@@ -75,6 +75,11 @@ M2 诊断 API（均需 key，接口文档见 docs/api.md）：
     python scripts/test_w3d4.py   # P6 API（TestClient 走 FastAPI 全栈）
     python scripts/test_w3d5.py   # 真实联调：uvicorn 子进程 + httpx 流式 SSE
 
+M3-P2 案例检索（离线，无需 key）：
+
+    python scripts/test_w4d1.py   # Chroma 增删查 + bge 向量
+    python scripts/test_w4d2.py   # 文档加载切分（PDF/docx/md）→ 入库
+
 ## 目录结构
 
     backend/app/
@@ -117,7 +122,13 @@ M2 诊断 API（均需 key，接口文档见 docs/api.md）：
 - [x] Week3 D4 P6 API（SSE /api/chat + 方案详情 + 确认接口）
 - [x] Week3 D5 真实联调（uvicorn + httpx 流式）+ docs/api.md + git tag
 
-### 下一步：M2 前端
+### M3-P2 案例检索
 
+- [x] Week4 D1 Chroma 集成（vector_store 增删查 + bge Embedding）
+- [x] Week4 D2 文档加载切分（PDF/docx/md → 递归切分 → 入库）
+
+### 下一步：M3 前端 / 检索接入诊断图
+
+- [ ] W4 D3：retriever 接入诊断图（需求 → 查相似案例 → 喂给方案节点）
 - [ ] 前端对话页接入 SSE（fetch 流式渲染打字机效果）
 - [ ] 确认循环 UI（确认/修改/拒绝）+ 方案详情卡片
