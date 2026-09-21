@@ -79,6 +79,7 @@ M3-P2 案例检索（离线，无需 key）：
 
     python scripts/test_w4d1.py   # Chroma 增删查 + bge 向量
     python scripts/test_w4d2.py   # 文档加载切分（PDF/docx/md）→ 入库
+    python scripts/test_w4d3.py   # 案例 API：上传 → SQLite+Chroma 双写 → 检索 → 删除
 
 ## 目录结构
 
@@ -126,9 +127,10 @@ M3-P2 案例检索（离线，无需 key）：
 
 - [x] Week4 D1 Chroma 集成（vector_store 增删查 + bge Embedding）
 - [x] Week4 D2 文档加载切分（PDF/docx/md → 递归切分 → 入库）
+- [x] Week4 D3 案例管理 API（POST /api/cases/upload，SQLite + Chroma 双写）
 
-### 下一步：M3 前端 / 检索接入诊断图
+### 下一步：M3 检索接入诊断图 / 前端
 
-- [ ] W4 D3：retriever 接入诊断图（需求 → 查相似案例 → 喂给方案节点）
+- [ ] W4 D4：retriever 接入诊断图（需求 → 查相似案例 → 喂给方案节点）
 - [ ] 前端对话页接入 SSE（fetch 流式渲染打字机效果）
 - [ ] 确认循环 UI（确认/修改/拒绝）+ 方案详情卡片

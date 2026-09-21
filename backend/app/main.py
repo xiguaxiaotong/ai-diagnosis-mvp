@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api.cases import router as cases_router
 from app.api.diagnosis import router as diagnosis_router
 from app.config import FRONTEND_ORIGIN
 from app.db.database import get_db, init_db
@@ -49,6 +50,8 @@ app.add_middleware(
 
 # P6 诊断 API（SSE 对话 / 方案详情 / 确认循环）
 app.include_router(diagnosis_router)
+# P2 案例 API（上传/列表/详情/删除）
+app.include_router(cases_router)
 
 
 @app.get("/")

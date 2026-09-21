@@ -1,5 +1,6 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9    # multipart 表单（案例上传接口）
 
 # P5 模型接入
 openai>=1.40.0            # DeepSeek 走 OpenAI 兼容协议
@@ -11,3 +12,9 @@ sqlalchemy>=2.0.0
 
 # P1 诊断智能体
 langgraph>=0.2.0
+
+# P2 案例检索
+chromadb>=1.0.0           # 向量库（持久化）
+langchain-text-splitters>=0.3.0  # 递归文本切分
+pypdf>=5.0.0              # PDF 解析
+python-docx>=1.1.0        # Word 解析

@@ -69,6 +69,14 @@ class VectorStore:
         if ids:
             self._collection.delete(ids=ids)
 
+    def delete_by_doc(self, doc_id: str) -> int:
+        """按 doc_id 元数据删除一个文档的全部 chunk，返回删除数。"""
+        got = self._collection.get(where={"doc_id": doc_id})
+        ids = got["ids"]
+        if ids:
+            self._collection.delete(ids=ids)
+        return len(ids)
+
     def clear(self) -> None:
         """清空集合（重建）。"""
         self._client.delete_collection(self._collection_name)
