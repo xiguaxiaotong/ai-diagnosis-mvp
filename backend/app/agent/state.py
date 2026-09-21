@@ -35,5 +35,10 @@ class DiagnosisState(TypedDict, total=False):
     full_solution: dict[str, Any]  # 完整方案对象（requirements+plan+budget+feasibility）
     final_output: str              # 面向用户的最终输出文本
 
+    # ---------- 方案确认（wait_confirmation/revise 节点写入） ----------
+    decision: str                  # 用户决定：confirmed / revised / rejected / pending
+    revision_round: int            # 已修改轮次（上限 MAX_REVISION_ROUNDS）
+    revision_feedback: str         # 用户最新一轮的修改要求（revise 时传给 generate）
+
     # ---------- 运行控制 ----------
     error: str | None              # 任一节点出错时写入

@@ -3,7 +3,7 @@
 ## 已确认的需求信息（JSON）
 
 {{requirements_json}}
-
+{{revision_feedback}}
 ## 方案要求
 
 1. project_name：沿用需求中的项目名称，可微调使其更清晰

@@ -11,6 +11,7 @@
 - clarify_round 达到 MAX_CLARIFY_ROUNDS 仍缺信息 → force_finish 强制结束，
   仍会走 generate 出「初步方案」（与 Day3 话术承诺一致，缺失部分按假设处理）
 - 需要传 thread_id：graph.invoke(input, {"configurable": {"thread_id": 会话id}})
+- Week3 Day3：output 后接确认循环（确认 / 修改最多 3 轮 / 拒绝），见 nodes/confirm.py
 """
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -19,6 +20,17 @@ from langgraph.graph import END, START, StateGraph
 from app.agent.nodes.ask import ask_node, wait_input_node
 from app.agent.nodes.budget import budget_node
 from app.agent.nodes.check import ROUTE_ASK, ROUTE_DONE, ROUTE_FORCE, check_completeness
+from app.agent.nodes.confirm import (
+    ROUTE_CONFIRMED,
+    ROUTE_MAXED,
+    ROUTE_REJECTED,
+    ROUTE_REVISED,
+    finalize_node,
+    reject_node,
+    review_router,
+    revise_node,
+    wait_confirmation_node,
+)
 from app.agent.nodes.feasibility import feasibility_node
 from app.agent.nodes.force import force_finish_node
 from app.agent.nodes.generate import generate_node
@@ -38,6 +50,10 @@ def build_graph():
     g.add_node("budget", budget_node)
     g.add_node("feasibility", feasibility_node)
     g.add_node("output", output_node)
+    g.add_node("wait_confirmation", wait_confirmation_node)
+    g.add_node("revise", revise_node)
+    g.add_node("finalize", finalize_node)
+    g.add_node("reject", reject_node)
 
     g.add_edge(START, "understand")
     g.add_conditional_edges(
@@ -52,7 +68,17 @@ def build_graph():
     g.add_edge("generate", "budget")
     g.add_edge("budget", "feasibility")
     g.add_edge("feasibility", "output")
-    g.add_edge("output", END)
+    # 方案确认循环：output → interrupt 等确认 → 确认/修改/拒绝/满轮
+    g.add_edge("output", "wait_confirmation")
+    g.add_conditional_edges(
+        "wait_confirmation",
+        review_router,
+        {ROUTE_CONFIRMED: END, ROUTE_REVISED: "revise", ROUTE_MAXED: "finalize", ROUTE_REJECTED: "reject"},
+    )
+    # 修改后重跑 generate → budget → feasibility → output → 再次等确认（轮次受 review_router 限制）
+    g.add_edge("revise", "generate")
+    g.add_edge("finalize", END)
+    g.add_edge("reject", END)
 
     # MemorySaver：进程内 checkpoint，interrupt 恢复必需。
     # 生产环境换 PostgresSaver/RedisSaver，接口不变。

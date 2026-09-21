@@ -23,9 +23,13 @@ def generate_node(state: DiagnosisState) -> dict:
     if not requirements:
         return {"error": "方案生成失败：缺少需求信息"}
 
+    # 用户确认循环中的修改要求（首轮生成时为空）
+    feedback = (state.get("revision_feedback") or "").strip()
+    feedback_section = f"\n## 用户修改要求（必须落实到方案中）\n\n{feedback}\n" if feedback else ""
     prompt = render(
         "generate",
         requirements_json=json.dumps(requirements, ensure_ascii=False, indent=2),
+        revision_feedback=feedback_section,
     )
 
     # 方案生成用 0.3 温度：比抽取稍高留一点创造性，但保证结构稳定
