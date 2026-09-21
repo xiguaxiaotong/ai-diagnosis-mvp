@@ -74,6 +74,17 @@ class SolutionPlan(BaseModel):
     )
 
 
+class FeasibilityReport(BaseModel):
+    """可行性评估节点的结构化输出。"""
+
+    overall: str = Field(description="总体结论：可行 / 有条件可行 / 风险较高，三选一")
+    risk_level: str = Field(description="风险等级：低 / 中 / 高，三选一")
+    tech_assessment: str = Field(description="技术可行性评估，2-3 句话")
+    schedule_assessment: str = Field(description="工期可行性评估，对照用户期望工期；未提及则按常规评估")
+    budget_assessment: str = Field(description="预算合理性评估，对照测算出的预算区间")
+    suggestions: list[str] = Field(description="落地建议，2-4 条，可执行的具体动作")
+
+
 class BudgetLineItem(BaseModel):
     """预算明细行：每一项钱的来源。"""
 

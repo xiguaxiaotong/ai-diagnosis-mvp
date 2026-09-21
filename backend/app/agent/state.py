@@ -32,6 +32,7 @@ class DiagnosisState(TypedDict, total=False):
     plan: dict[str, Any]           # 技术方案
     budget: dict[str, Any]         # 预算测算（区间）
     feasibility: dict[str, Any]    # 可行性评估
+    full_solution: dict[str, Any]  # 完整方案对象（requirements+plan+budget+feasibility）
     final_output: str              # 面向用户的最终输出文本
 
     # ---------- 运行控制 ----------
