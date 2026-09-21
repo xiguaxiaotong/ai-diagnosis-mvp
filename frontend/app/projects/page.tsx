@@ -30,22 +30,6 @@ export default function ProjectsPage() {
     load();
   }, [load]);
 
-  // 创建一个演示项目（联调验证 CRUD 通路）
-  async function createDemo() {
-    try {
-      await api("/api/projects", {
-        method: "POST",
-        body: JSON.stringify({
-          title: "演示项目：扫码点单小程序",
-          raw_idea: "我想给餐饮店做一个扫码点单小程序",
-        }),
-      });
-      await load();
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
   async function remove(id: number) {
     try {
       await api(`/api/projects/${id}`, { method: "DELETE" });
@@ -59,19 +43,19 @@ export default function ProjectsPage() {
     <main style={{ maxWidth: 720, margin: "60px auto", padding: "0 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>历史项目</h1>
-        <button
-          onClick={createDemo}
+        <Link
+          href="/"
           style={{
             padding: "8px 16px",
             background: "#2563eb",
             color: "#fff",
-            border: "none",
             borderRadius: 6,
-            cursor: "pointer",
+            textDecoration: "none",
+            fontSize: 14,
           }}
         >
-          + 新建演示项目
-        </button>
+          + 新建诊断
+        </Link>
       </div>
 
       {error && <p style={{ color: "#dc2626" }}>请求失败：{error}</p>}
@@ -105,6 +89,17 @@ export default function ProjectsPage() {
                 {p.budget_min != null && p.budget_max != null && (
                   <>
                     {" · "}预算区间：¥{p.budget_min} ~ ¥{p.budget_max}
+                  </>
+                )}
+                {p.created_at && (
+                  <>
+                    {" · "}
+                    创建于 {new Date(p.created_at).toLocaleString("zh-CN", {
+                      month: "2-digit",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </>
                 )}
               </div>
