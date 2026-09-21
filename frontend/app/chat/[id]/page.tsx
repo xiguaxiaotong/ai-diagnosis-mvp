@@ -110,8 +110,10 @@ export default function ChatPage() {
     }
   }
 
-  /** 发送一条普通消息（走 /api/chat SSE 流式） */
-  async function send(text: string) {
+  /** 发送一条普通消息（走 /api/chat SSE 流式）
+   *  opts.explicitConfirm：用户主动点「确认方案」→ 完成后展示横幅并跳方案页；
+   *  满轮强制收尾等非主动确认的 done 不跳页（不擅自替用户当作已确认）。 */
+  async function send(text: string, opts?: { explicitConfirm?: boolean }) {
     const message = text.trim();
     if (!message || busy) return;
     setError(null);
@@ -122,6 +124,7 @@ export default function ChatPage() {
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setStreamBuf("");
 
+    let lastPhase = "";
     try {
       const resp = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
@@ -136,6 +139,7 @@ export default function ChatPage() {
       await readSSE(resp, (evt) => {
         const type = evt.type as string;
         if (type === "meta") {
+          lastPhase = evt.phase as string;
           setPhase(evt.phase as string);
           setQuestions((evt.questions as string[]) ?? []);
         } else if (type === "stage") {
@@ -151,6 +155,11 @@ export default function ChatPage() {
         // 流结束但没有任何内容：静默失败必须显式提示，不能让界面看似卡死
         setError("连接中断，后端没有返回内容。请重新发送或稍后重试。");
       }
+      if (lastPhase === "done" && opts?.explicitConfirm) {
+        // 确认收尾 → 展示联系承诺横幅，稍后跳方案展示页
+        setConfirmBanner(true);
+        setTimeout(() => router.push(`/project/${projectId}`), 2500);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -159,41 +168,13 @@ export default function ChatPage() {
     }
   }
 
-  /** 确认循环动作（走 /api/project/{id}/confirm，非流式） */
-  async function confirmAction(action: "confirm" | "revise", feedback?: string) {
-    if (busy) return;
-    setError(null);
-    setBusy(true);
+  /** 确认循环动作：与普通消息同走 SSE 通道（意图由后端关键词分类）。
+   *  用户消息立即上屏、回复流式输出，不再是长时间黑盒等待。 */
+  function confirmAction(action: "confirm" | "revise", feedback?: string) {
+    const text = action === "confirm" ? "确认，就这样" : (feedback ?? "").trim();
+    if (!text) return;
     setReviseMode(false);
-    setStage(null);
-    if (action === "revise") setInput("");
-    try {
-      const r = await api<{
-        phase: string;
-        reply: string;
-        revision_round: number;
-      }>(`/api/project/${projectId}/confirm`, {
-        method: "POST",
-        body: JSON.stringify({ action, feedback }),
-      });
-      // 动作消息进对话流（与后端 confirm 接口映射文案一致）
-      setMsgs((m) => [
-        ...m,
-        { role: "user", content: action === "confirm" ? "确认，就这样" : (feedback ?? "").trim() },
-      ]);
-      setPhase(r.phase);
-      setQuestions([]);
-      setMsgs((m) => [...m, { role: "assistant", content: r.reply }]);
-      if (r.phase === "done") {
-        // 确认收尾 → 展示联系承诺横幅，稍后跳方案展示页
-        setConfirmBanner(true);
-        setTimeout(() => router.push(`/project/${projectId}`), 2500);
-      }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
+    send(text, { explicitConfirm: action === "confirm" });
   }
 
   const inputDisabled = busy || phase === "done";

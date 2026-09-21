@@ -3,6 +3,8 @@
 业务代码统一通过本服务访问数据库，不直接操作 ORM 模型。
 """
 
+from uuid import uuid4
+
 from sqlalchemy.orm import Session
 
 from app.db.models import Conversation, Project
@@ -10,8 +12,11 @@ from app.db.models import Conversation, Project
 
 def create_project(db: Session, title: str, raw_idea: str | None = None,
                    user_id: int | None = None) -> Project:
-    """新建项目（状态默认 diagnosing）。"""
-    project = Project(title=title, raw_idea=raw_idea, user_id=user_id)
+    """新建项目（状态默认 diagnosing）。thread_id 供 LangGraph 会话隔离。"""
+    project = Project(
+        title=title, raw_idea=raw_idea, user_id=user_id,
+        thread_id=uuid4().hex,
+    )
     db.add(project)
     db.commit()
     db.refresh(project)

@@ -6,10 +6,12 @@
     clarify       需求追问中（图停在 wait_input）
     confirm_wait  方案已出，等用户确认（图停在 wait_confirmation）
     done          诊断结束（确认/拒绝/满轮收尾）
-- thread_id 与 project_id 一一对应：project-{id}
+- thread_id 用 Project.thread_id（uuid）隔离，防止 rowid 复用串会话
 """
 
 import logging
+
+from uuid import uuid4
 
 from langgraph.types import Command
 
@@ -20,7 +22,29 @@ logger = logging.getLogger(__name__)
 
 
 def _config(project_id: int) -> dict:
-    return {"configurable": {"thread_id": f"project-{project_id}"}}
+    """图会话线程配置。
+
+    thread_id 必须用项目级唯一 id（Project.thread_id uuid），不能用自增主键：
+    SQLite rowid 删除后会被复用，新项目可能拿到已删项目的 id，
+    继承 MemorySaver 里残留的图状态（曾导致修改轮次虚高、满轮误判为已确认）。
+    旧数据无 thread_id 时懒初始化补写。
+    """
+    from app.db.database import SessionLocal
+    from app.db.models import Project
+
+    db = SessionLocal()
+    try:
+        project = db.get(Project, project_id)
+        if project is not None:
+            if not project.thread_id:
+                project.thread_id = uuid4().hex
+                db.commit()
+            thread_key = f"project-{project.thread_id}"
+        else:
+            thread_key = f"project-{project_id}"
+    finally:
+        db.close()
+    return {"configurable": {"thread_id": thread_key}}
 
 
 def _last_assistant_message(state: dict) -> str:

@@ -44,6 +44,9 @@ class Project(Base):
     title: Mapped[str] = mapped_column(String(128), default="未命名项目")
     raw_idea: Mapped[str | None] = mapped_column(Text, nullable=True)  # 用户原始业务想法
     status: Mapped[str] = mapped_column(String(20), default=STATUS_DIAGNOSING, index=True)
+    # 图会话线程 id（uuid）：SQLite rowid 删除后会被复用，若用项目 id 当 thread_id，
+    # 新项目会继承已删项目残留的 LangGraph 状态（轮次虚高/误确认），必须全局唯一
+    thread_id: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
 
     # 方案与预算（AI 生成后写入；预算按商业计划书要求存区间）
     plan: Mapped[str | None] = mapped_column(Text, nullable=True)  # 方案 JSON

@@ -39,6 +39,7 @@ class DiagnosisState(TypedDict, total=False):
     decision: str                  # 用户决定：confirmed / revised / rejected / pending
     revision_round: int            # 已修改轮次（上限 MAX_REVISION_ROUNDS）
     revision_feedback: str         # 用户最新一轮的修改要求（revise 时传给 generate）
+    finalized: bool                # 满轮强制收尾标记（与用户主动确认区分，缺失会导致误发「已确认」话术）
 
     # ---------- 运行控制 ----------
     error: str | None              # 任一节点出错时写入
