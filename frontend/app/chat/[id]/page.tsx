@@ -279,7 +279,7 @@ export default function ChatPage() {
             {questions.map((q, i) => (
               <button
                 key={i}
-                onClick={() => setInput((v) => (v ? v + "；" : "") + q)}
+                onClick={() => setInput((v) => (v ? v + "；" : "") + `「${q}」我的回答：`)}
                 style={{
                   display: "block", margin: "0 0 8px", padding: "10px 12px", maxWidth: "85%",
                   minHeight: 40,
@@ -290,7 +290,7 @@ export default function ChatPage() {
                 💡 {q}
               </button>
             ))}
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>点击问题可填入输入框，补充你的情况后发送</span>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>点击问题填入模板，在「我的回答：」后面补充实际情况再发送</span>
           </div>
         )}
 

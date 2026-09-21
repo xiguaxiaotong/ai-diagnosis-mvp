@@ -1,0 +1,22 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - heading "追问判定验证" [level=1] [ref=e13]
+        - text: 需求诊断中
+      - link "← 历史项目" [ref=e6] [cursor=pointer]:
+        - /url: /projects
+    - generic [ref=e7]:
+      - generic [ref=e14]: 我是一个大学生，平时点外卖太累了，经常要去不同的平台比价，看不同的平台有什么吃的，还要看他们的评价
+      - generic [ref=e16]: 为了给您出准确的方案和报价，我需要先确认几个问题： 1. 系统以什么形式使用（微信小程序、手机App还是网页）？ 2. 预计有多少人使用（比如只有你自己，还是全校同学）？ 3. 大概能投入多少预算和多久做完？
+      - generic [ref=e22]: 系统以什么形式使用（微信小程序、手机App还是网页）？
+      - generic [ref=e24]: 为了给您出准确的方案和报价，我需要先确认几个问题： 1. 系统以什么形式使用（微信小程序、手机App还是网页）？ 2. 预计有多少人使用（只有你自己，还是全校同学）？ 3. 大概能投入多少预算、多久做完？
+      - generic [ref=e26]:
+        - button "💡 系统以什么形式使用（微信小程序、手机App还是网页）？" [ref=e27] [cursor=pointer]
+        - button "💡 预计有多少人使用（只有你自己，还是全校同学）？" [ref=e28] [cursor=pointer]
+        - button "💡 大概能投入多少预算、多久做完？" [ref=e29] [cursor=pointer]
+        - text: 点击问题填入模板，在「我的回答：」后面补充实际情况再发送
+    - generic [ref=e9]:
+      - textbox "补充你的业务情况…（Enter 发送，Shift+Enter 换行）" [ref=e10]
+      - button "发送" [disabled] [ref=e11]
+  - alert [ref=e12]
