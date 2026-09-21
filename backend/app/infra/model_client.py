@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Iterator, List, Optional
 
 from openai import OpenAI
@@ -144,6 +145,12 @@ class EmbeddingClient:
             return
         # 国内网络走镜像站下载
         os.environ.setdefault("HF_ENDPOINT", HF_ENDPOINT)
+        # 模型已缓存时跳过 HF Hub 版本检查（否则每次启动都发 HEAD 请求，
+        # 被墙后重试 5 次，白卡 5-10 秒）
+        cache_dir = Path(os.getenv(
+            "HF_HOME", Path.home() / ".cache" / "huggingface") ) / "hub"
+        if (cache_dir / f"models--{self.model_name.replace('/', '--')}").exists():
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
         from sentence_transformers import SentenceTransformer
 
         logger.info("加载 Embedding 模型: %s (device=%s)", self.model_name, self.device)
