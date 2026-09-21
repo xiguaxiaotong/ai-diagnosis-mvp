@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api.diagnosis import router as diagnosis_router
 from app.config import FRONTEND_ORIGIN
 from app.db.database import get_db, init_db
 from app.infra.callbacks import setup_logging
@@ -36,7 +37,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="AI Diagnosis MVP", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="AI Diagnosis MVP", version="0.3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +46,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# P6 诊断 API（SSE 对话 / 方案详情 / 确认循环）
+app.include_router(diagnosis_router)
 
 
 @app.get("/")
