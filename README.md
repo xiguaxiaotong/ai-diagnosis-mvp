@@ -81,6 +81,8 @@ M3-P2 案例检索（离线，无需 key）：
     python scripts/test_w4d2.py   # 文档加载切分（PDF/docx/md）→ 入库
     python scripts/test_w4d3.py   # 案例 API：上传 → SQLite+Chroma 双写 → 检索 → 删除
     python scripts/test_w4d4.py   # 检索接入诊断图（方案引用真实案例，需 key）
+    python scripts/seed_cases.py  # 冷启动：录入 20 个标准案例（幂等）
+    python scripts/test_w4d5.py   # 案例库 Top5 检索相关性 + 方案引用（需 key）
 
 ## 目录结构
 
@@ -130,6 +132,7 @@ M3-P2 案例检索（离线，无需 key）：
 - [x] Week4 D2 文档加载切分（PDF/docx/md → 递归切分 → 入库）
 - [x] Week4 D3 案例管理 API（POST /api/cases/upload，SQLite + Chroma 双写）
 - [x] Week4 D4 检索接入诊断图（retrieve 节点 → 案例摘要进 Prompt → 方案引用）
+- [x] Week4 D5 冷启动数据（20 个标准案例入库，Top5 检索相关性验收，tag `m3-rag`）
 
 ### 下一步：M3 前端
 
