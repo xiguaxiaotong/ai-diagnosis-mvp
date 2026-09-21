@@ -8,3 +8,6 @@ python-dotenv>=1.0.0
 
 # P10 数据层
 sqlalchemy>=2.0.0
+
+# P1 诊断智能体
+langgraph>=0.2.0
