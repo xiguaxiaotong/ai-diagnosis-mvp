@@ -41,7 +41,7 @@ export default function Home() {
       style={{
         maxWidth: 720,
         margin: "0 auto",
-        padding: "96px 16px 64px",
+        padding: "clamp(56px, 12vh, 96px) 16px 64px",
         textAlign: "center",
       }}
     >
@@ -58,7 +58,14 @@ export default function Home() {
       >
         AI 需求诊断 · 方案生成 · 预算评估
       </p>
-      <h1 style={{ fontSize: 36, marginBottom: 12, letterSpacing: 1 }}>
+      <h1
+        style={{
+          fontSize: "clamp(26px, 7vw, 36px)",
+          marginBottom: 12,
+          letterSpacing: 1,
+          lineHeight: 1.3,
+        }}
+      >
         把你的想法，变成可落地的方案
       </h1>
       <p style={{ color: "#646a73", marginBottom: 32, fontSize: 15 }}>
@@ -87,7 +94,7 @@ export default function Home() {
           style={{
             flex: 1,
             padding: "12px 14px",
-            fontSize: 15,
+            fontSize: 16, // ≥16px，避免 iOS 聚焦自动放大
             border: "1px solid #d1d5db",
             borderRadius: 10,
             resize: "vertical",
@@ -101,8 +108,11 @@ export default function Home() {
           onClick={startDiagnosis}
           disabled={!idea.trim() || creating || backendOk === false}
           style={{
-            padding: "12px 36px",
-            fontSize: 15,
+            padding: "13px 36px",
+            fontSize: 16,
+            minHeight: 48,
+            width: "100%",
+            maxWidth: 360, // 移动端近乎全宽的触控目标
             background: backendOk === false ? "#9ca3af" : "#2563eb",
             color: "#fff",
             border: "none",

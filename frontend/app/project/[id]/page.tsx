@@ -183,7 +183,7 @@ export default function ProjectPage() {
       {/* 头部：标题 + 状态 + 预算区间 */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h1 style={{ fontSize: 22, margin: 0 }}>{plan.project_name}</h1>
+          <h1 style={{ fontSize: "clamp(19px, 5vw, 22px)", margin: 0 }}>{plan.project_name}</h1>
           <span style={{
             fontSize: 12, padding: "3px 10px", borderRadius: 999,
             background: isFinal ? "#f0fdf4" : "#eff6ff",
@@ -213,7 +213,8 @@ export default function ProjectPage() {
       {card("业务方案", (
         <>
           <p style={{ fontSize: 14, lineHeight: 1.8, margin: "0 0 14px" }}>{plan.business_summary}</p>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
             <thead>
               <tr>
                 <th style={{ ...th, width: 90 }}>优先级</th>
@@ -236,6 +237,7 @@ export default function ProjectPage() {
               })}
             </tbody>
           </table>
+          </div>
         </>
       ))}
 
@@ -243,7 +245,8 @@ export default function ProjectPage() {
       {card("技术方案", (
         <>
           <p style={{ fontSize: 14, lineHeight: 1.8, margin: "0 0 14px" }}>{plan.tech_architecture}</p>
-          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 14 }}>
+          <div style={{ overflowX: "auto", marginBottom: 14 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
                 <th style={{ ...th, width: 90 }}>层级</th>
@@ -261,6 +264,7 @@ export default function ProjectPage() {
               ))}
             </tbody>
           </table>
+          </div>
           <p style={{ fontSize: 13, margin: "0 0 6px", color: "#646a73" }}>分期实施</p>
           <ol style={{ fontSize: 13, lineHeight: 1.9, margin: "0 0 12px", paddingLeft: 20 }}>
             {plan.implementation_phases.map((p, i) => <li key={i}>{p}</li>)}
@@ -275,7 +279,8 @@ export default function ProjectPage() {
       {/* 预算明细（表格主体） */}
       {card("预算明细", (
         <>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
             <thead>
               <tr>
                 <th style={th}>计价项</th>
@@ -301,6 +306,7 @@ export default function ProjectPage() {
               </tr>
             </tbody>
           </table>
+          </div>
           {budget.assumptions?.length > 0 && (
             <p style={{ fontSize: 12, color: "#646a73", margin: "10px 0 0", lineHeight: 1.8 }}>
               测算假设：{budget.assumptions.join("；")}
@@ -340,7 +346,8 @@ export default function ProjectPage() {
       {/* 确认 / 修改操作区 */}
       <section style={{
         position: "sticky", bottom: 0, background: "#fff", borderTop: "1px solid #e5e7eb",
-        padding: "14px 0", display: "flex", gap: 10, alignItems: "center",
+        padding: "14px 0 calc(14px + env(safe-area-inset-bottom))",
+        display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
       }}>
         {isFinal ? (
           <p style={{ margin: 0, fontSize: 14, color: "#15803d" }}>✓ 方案已确认</p>
@@ -351,18 +358,18 @@ export default function ProjectPage() {
               onChange={(e) => setFeedback(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && feedback.trim() && confirmAction("revise", feedback)}
               placeholder="填写修改意见，如：预算砍到 5 万以内、去掉 App 端…"
-              style={{ flex: 1, padding: "10px 12px", fontSize: 14, border: "1px solid #d1d5db", borderRadius: 8, outline: "none" }}
+              style={{ flex: 1, minWidth: 160, padding: "10px 12px", fontSize: 16, border: "1px solid #d1d5db", borderRadius: 8, outline: "none" }}
             />
             <button
               onClick={() => confirmAction("revise", feedback)}
               disabled={busy || !feedback.trim()}
-              style={{ padding: "10px 18px", background: busy || !feedback.trim() ? "#9ca3af" : "#2563eb", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+              style={{ minHeight: 44, padding: "10px 18px", background: busy || !feedback.trim() ? "#9ca3af" : "#2563eb", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
             >
               提交修改
             </button>
             <button
               onClick={() => { setReviseMode(false); setFeedback(""); }}
-              style={{ padding: "10px 14px", background: "#fff", color: "#646a73", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+              style={{ minHeight: 44, padding: "10px 14px", background: "#fff", color: "#646a73", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
             >
               取消
             </button>
@@ -372,14 +379,14 @@ export default function ProjectPage() {
             <button
               onClick={() => confirmAction("confirm")}
               disabled={busy}
-              style={{ padding: "10px 26px", background: busy ? "#9ca3af" : "#16a34a", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+              style={{ minHeight: 44, padding: "10px 26px", background: busy ? "#9ca3af" : "#16a34a", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
             >
               ✓ 确认方案
             </button>
             <button
               onClick={() => setReviseMode(true)}
               disabled={busy}
-              style={{ padding: "10px 22px", background: "#fff", color: "#2563eb", border: "1px solid #2563eb", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+              style={{ minHeight: 44, padding: "10px 22px", background: "#fff", color: "#2563eb", border: "1px solid #2563eb", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
             >
               ✏️ 需要修改
             </button>

@@ -171,7 +171,7 @@ export default function ChatPage() {
   const inputDisabled = busy || phase === "done";
 
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: "0 16px", height: "100vh", display: "flex", flexDirection: "column" }}>
+    <main style={{ maxWidth: 760, margin: "0 auto", padding: "0 16px", height: "100dvh", display: "flex", flexDirection: "column" }}>
       <style>{`
         @keyframes blink { 0%,80%,100% { opacity: .25 } 40% { opacity: 1 } }
         .dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; display: inline-block; animation: blink 1.2s infinite; }
@@ -200,7 +200,7 @@ export default function ChatPage() {
           <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 12 }}>
             <div
               style={{
-                maxWidth: "78%",
+                maxWidth: "85%",
                 padding: "10px 14px",
                 borderRadius: 12,
                 fontSize: 14,
@@ -222,7 +222,7 @@ export default function ChatPage() {
         {streamBuf !== null && (
           <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 12 }}>
             <div style={{
-              maxWidth: "78%", padding: "10px 14px", borderRadius: 12, fontSize: 14,
+              maxWidth: "85%", padding: "10px 14px", borderRadius: 12, fontSize: 14,
               lineHeight: 1.7, whiteSpace: "pre-wrap", background: "#fff",
               border: "1px solid #e5e7eb", borderBottomLeftRadius: 4,
             }}>
@@ -253,7 +253,8 @@ export default function ChatPage() {
                 key={i}
                 onClick={() => setInput((v) => (v ? v + "；" : "") + q)}
                 style={{
-                  display: "block", margin: "0 0 8px", padding: "8px 12px", maxWidth: "78%",
+                  display: "block", margin: "0 0 8px", padding: "10px 12px", maxWidth: "85%",
+                  minHeight: 40,
                   background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe",
                   borderRadius: 8, fontSize: 13, cursor: "pointer", textAlign: "left",
                 }}
@@ -270,13 +271,13 @@ export default function ChatPage() {
           <div style={{ margin: "8px 0 16px", display: "flex", gap: 10 }}>
             <button
               onClick={() => confirmAction("confirm")}
-              style={{ padding: "9px 20px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+              style={{ minHeight: 44, padding: "9px 20px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
             >
               ✓ 确认方案
             </button>
             <button
               onClick={() => setReviseMode(true)}
-              style={{ padding: "9px 20px", background: "#fff", color: "#2563eb", border: "1px solid #2563eb", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+              style={{ minHeight: 44, padding: "9px 20px", background: "#fff", color: "#2563eb", border: "1px solid #2563eb", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
             >
               ✏️ 需要修改
             </button>
@@ -297,8 +298,8 @@ export default function ChatPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* 输入区 */}
-      <div style={{ borderTop: "1px solid #e5e7eb", padding: "12px 0 16px", display: "flex", gap: 10 }}>
+      {/* 输入区（safe-area 兜底 iPhone 底部横条） */}
+      <div style={{ borderTop: "1px solid #e5e7eb", padding: "12px 0 calc(12px + env(safe-area-inset-bottom))", display: "flex", gap: 10, alignItems: "flex-end" }}>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -318,7 +319,7 @@ export default function ChatPage() {
           rows={2}
           disabled={inputDisabled}
           style={{
-            flex: 1, padding: "10px 12px", fontSize: 14, border: "1px solid #d1d5db",
+            flex: 1, padding: "10px 12px", fontSize: 16, border: "1px solid #d1d5db",
             borderRadius: 10, resize: "none", outline: "none", fontFamily: "inherit",
             background: inputDisabled ? "#f3f4f6" : "#fff",
           }}
@@ -327,7 +328,7 @@ export default function ChatPage() {
           onClick={() => (reviseMode ? confirmAction("revise", input) : send(input))}
           disabled={inputDisabled || !input.trim()}
           style={{
-            padding: "0 22px", fontSize: 14, borderRadius: 10, border: "none",
+            minHeight: 44, padding: "0 22px", fontSize: 15, borderRadius: 10, border: "none",
             background: inputDisabled || !input.trim() ? "#9ca3af" : "#2563eb",
             color: "#fff", cursor: inputDisabled || !input.trim() ? "not-allowed" : "pointer",
           }}

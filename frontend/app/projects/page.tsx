@@ -30,7 +30,9 @@ export default function ProjectsPage() {
     load();
   }, [load]);
 
-  async function remove(id: number) {
+  async function remove(id: number, title: string) {
+    // 二次确认，防误触（移动端尤其容易点错）
+    if (!window.confirm(`确定删除「${title}」吗？删除后不可恢复。`)) return;
     try {
       await api(`/api/projects/${id}`, { method: "DELETE" });
       await load();
@@ -58,7 +60,21 @@ export default function ProjectsPage() {
         </Link>
       </div>
 
-      {error && <p style={{ color: "#dc2626" }}>请求失败：{error}</p>}
+      {error && (
+        <p style={{ color: "#dc2626", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          请求失败：{error}
+          <button
+            onClick={load}
+            style={{
+              padding: "8px 16px", minHeight: 36, fontSize: 13,
+              background: "#fff", color: "#2563eb",
+              border: "1px solid #2563eb", borderRadius: 6, cursor: "pointer",
+            }}
+          >
+            重试
+          </button>
+        </p>
+      )}
 
       {projects === null && !error && <p style={{ color: "#646a73" }}>加载中…</p>}
 
@@ -80,8 +96,14 @@ export default function ProjectsPage() {
               alignItems: "center",
             }}
           >
-            <div>
-              <Link href={`/project/${p.id}`} style={{ fontWeight: 600, color: "#111" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Link
+                href={`/project/${p.id}`}
+                style={{
+                  fontWeight: 600, color: "#111", textDecoration: "none",
+                  display: "inline-block", padding: "4px 0",
+                }}
+              >
                 {p.title}
               </Link>
               <div style={{ fontSize: 13, color: "#646a73", marginTop: 4 }}>
@@ -105,9 +127,13 @@ export default function ProjectsPage() {
               </div>
             </div>
             <button
-              onClick={() => remove(p.id)}
+              onClick={() => remove(p.id, p.title)}
               style={{
-                padding: "6px 12px",
+                flexShrink: 0,
+                minHeight: 40,
+                marginLeft: 12,
+                padding: "6px 14px",
+                fontSize: 13,
                 background: "#fff",
                 color: "#dc2626",
                 border: "1px solid #dc2626",
