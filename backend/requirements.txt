@@ -1,0 +1,10 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# P5 模型接入
+openai>=1.40.0            # DeepSeek 走 OpenAI 兼容协议
+sentence-transformers>=3.0.0  # bge-small 本地 Embedding（会自动安装 torch/tokens 等依赖）
+python-dotenv>=1.0.0
+
+# P10 数据层
+sqlalchemy>=2.0.0

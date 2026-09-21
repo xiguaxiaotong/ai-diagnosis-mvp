@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.tools/
+
+# 环境变量（含 key，绝不入库）
+.env
+.env.local
+
+# 本地数据
+backend/data/sqlite.db
+backend/data/chroma/*
+!backend/data/chroma/.gitkeep
+backend/data/cases/*
+!backend/data/cases/.gitkeep
+
+# 系统文件
+.DS_Store
+Thumbs.db

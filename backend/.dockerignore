@@ -1,0 +1,6 @@
+__pycache__
+*.pyc
+data/sqlite.db
+data/chroma/*
+data/cases/*
+.env
