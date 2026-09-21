@@ -67,6 +67,14 @@ M1-P1 诊断智能体（均需 key）：
     python scripts/test_w2d4.py   # 方案生成：业务/技术方案 JSON 校验
     python scripts/test_w2d5.py   # 端到端：想法→追问→方案
 
+M2 诊断 API（均需 key，接口文档见 docs/api.md）：
+
+    python scripts/test_w3d1.py   # 预算测算节点（规则引擎，离线）
+    python scripts/test_w3d2.py   # 可行性评估 + 汇总持久化
+    python scripts/test_w3d3.py   # 用户确认循环 + 完整图编译
+    python scripts/test_w3d4.py   # P6 API（TestClient 走 FastAPI 全栈）
+    python scripts/test_w3d5.py   # 真实联调：uvicorn 子进程 + httpx 流式 SSE
+
 ## 目录结构
 
     backend/app/
@@ -101,7 +109,15 @@ M1-P1 诊断智能体（均需 key）：
 - [x] Week2 D4 方案生成节点（业务模块/技术选型/分期/风险，预算区间）
 - [x] Week2 D5 端到端测试（想法 → 追问 → 方案）
 
-### 下一步：M1-P2
+### M2 诊断 API (tag: m2-api)
 
-- [ ] 案例检索（向量库 + 历史项目相似案例）
-- [ ] FastAPI 流式诊断接口 + 前端对话页接入
+- [x] Week3 D1 budget 预算测算节点（规则引擎，区间 + 明细）
+- [x] Week3 D2 feasibility 可行性评估 + output 汇总持久化
+- [x] Week3 D3 用户确认循环（confirm/revise/reject）+ 完整图编译
+- [x] Week3 D4 P6 API（SSE /api/chat + 方案详情 + 确认接口）
+- [x] Week3 D5 真实联调（uvicorn + httpx 流式）+ docs/api.md + git tag
+
+### 下一步：M2 前端
+
+- [ ] 前端对话页接入 SSE（fetch 流式渲染打字机效果）
+- [ ] 确认循环 UI（确认/修改/拒绝）+ 方案详情卡片
