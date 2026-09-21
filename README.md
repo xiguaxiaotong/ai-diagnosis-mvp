@@ -85,6 +85,7 @@ M3-P2 案例检索（离线，无需 key）：
     python scripts/test_w4d5.py   # 案例库 Top5 检索相关性 + 方案引用（需 key）
     python scripts/test_w5d1.py   # 首页创建新项目 + 历史列表（需前后端已启动）
     python scripts/test_w5d2.py   # 聊天页 SSE 流式 + 多轮对话（需后端已启动，真调 LLM）
+    python scripts/test_w5d3.py   # 方案展示页数据完整 + 确认/修改通路（stub LLM，零 token）
 
 ## 目录结构
 
@@ -137,6 +138,7 @@ M3-P2 案例检索（离线，无需 key）：
 - [x] Week4 D5 冷启动数据（20 个标准案例入库，Top5 检索相关性验收，tag `m3-rag`）
 - [x] Week5 D1 前端首页 + 历史项目列表页（开始新诊断入口，创建项目后跳对话页）
 - [x] Week5 D2 聊天页（SSE 流式气泡、打字指示器、追问快捷填充、方案确认/修改栏）
+- [x] Week5 D3 方案展示页（业务/技术方案、预算明细表、可行性评估、确认/修改）+ 确认状态落库修复
 
 ### 下一步：M3 前端
 

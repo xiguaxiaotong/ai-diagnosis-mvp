@@ -91,6 +91,9 @@ def chat_turn(project_id: int, message: str) -> dict:
             "questions": [],
             "solution": state.get("full_solution"),
         }
+        # 用户确认方案 → 项目状态推进（方案页据此展示「已确认」锁定态）
+        if state.get("decision") == "confirmed":
+            _mark_confirmed(project_id)
     result["revision_round"] = state.get("revision_round", 0)
     if result["revision_round"] and result["phase"] == "confirm_wait":
         result["reply"] += (
@@ -99,3 +102,20 @@ def chat_turn(project_id: int, message: str) -> dict:
     logger.info("[chat_turn] project=%s phase=%s reply=%d 字",
                 project_id, result["phase"], len(result["reply"]))
     return result
+
+
+def _mark_confirmed(project_id: int) -> None:
+    """确认收尾后把项目状态推进到 confirmed（失败只告警，不阻塞回复）。"""
+    from app.db.database import SessionLocal
+    from app.db.models import Project
+    from app.services import project_service as _project_service
+
+    db = SessionLocal()
+    try:
+        _project_service.update_project(db, project_id, status=Project.STATUS_CONFIRMED)
+        logger.info("[chat_turn] project=%s status → confirmed", project_id)
+    except Exception:
+        db.rollback()
+        logger.exception("[chat_turn] project=%s 状态推进 confirmed 失败", project_id)
+    finally:
+        db.close()
