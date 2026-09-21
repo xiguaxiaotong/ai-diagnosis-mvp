@@ -10,6 +10,7 @@ type Msg = { role: "user" | "assistant"; content: string };
 interface ProjectDetail {
   id: number;
   title: string;
+  raw_idea: string | null;
   status: string;
   solution: Record<string, unknown> | null;
   messages: { id: number; role: string; content: string }[];
@@ -42,10 +43,13 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const autoSentRef = useRef(false); // raw_idea 自动首发守卫（StrictMode 双执行防重）
+  const loadedForRef = useRef<number | null>(null); // 每个项目只加载一次（防二次执行覆盖 msgs）
 
   // 初始加载：历史消息 + 根据 solution 恢复阶段
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || loadedForRef.current === projectId) return;
+    loadedForRef.current = projectId;
     api<ProjectDetail>(`/api/projects/${projectId}`)
       .then((d) => {
         setTitle(d.title);
@@ -58,6 +62,12 @@ export default function ChatPage() {
           setPhase(d.status === "diagnosing" ? "confirm_wait" : "done");
         }
         setLoaded(true);
+        // 关键：首页收集的想法还没进过对话 → 自动作为第一条消息发给 AI，
+        // 否则用户会以为 AI 在诊断、实际在干等（首条对话为空且从未发过才触发）
+        if (!autoSentRef.current && d.raw_idea && d.messages.length === 0) {
+          autoSentRef.current = true;
+          send(d.raw_idea);
+        }
       })
       .catch((e) => {
         setError(String(e));
@@ -137,6 +147,10 @@ export default function ChatPage() {
         // done 事件在下面统一收尾
       });
       setMsgs((m) => [...m, { role: "assistant", content: acc }]);
+      if (!acc) {
+        // 流结束但没有任何内容：静默失败必须显式提示，不能让界面看似卡死
+        setError("连接中断，后端没有返回内容。请重新发送或稍后重试。");
+      }
     } catch (e) {
       setError(String(e));
     } finally {

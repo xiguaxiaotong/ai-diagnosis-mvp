@@ -1,0 +1,13 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - heading "诊断对话" [level=1] [ref=e5]
+        - text: 需求诊断中
+      - link "← 历史项目" [ref=e6] [cursor=pointer]:
+        - /url: /projects
+    - paragraph [ref=e8]: 加载中…
+    - generic [ref=e9]:
+      - textbox "补充你的业务情况…（Enter 发送，Shift+Enter 换行）" [ref=e10]
+      - button "发送" [disabled] [ref=e11]
+  - alert [ref=e12]
