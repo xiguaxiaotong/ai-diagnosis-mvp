@@ -87,6 +87,7 @@ M3-P2 案例检索（离线，无需 key）：
     python scripts/test_w5d2.py   # 聊天页 SSE 流式 + 多轮对话（需后端已启动，真调 LLM）
     python scripts/test_w5d4.py   # 确认循环：修改回对话继续 + 确认收尾话术（需前后端已启动，真调 LLM）
     python scripts/test_w5d5.py   # UI 移动适配与错误处理检查（需前后端已启动）
+    python scripts/test_w5d6.py   # 等待体验：SSE 阶段事件（正在理解需求/生成方案…，真调 LLM）
     python scripts/test_w5d3.py   # 方案展示页数据完整 + 确认/修改通路（stub LLM，零 token）
 
 ## 目录结构
@@ -143,3 +144,4 @@ M3-P2 案例检索（离线，无需 key）：
 - [x] Week5 D3 方案展示页（业务/技术方案、预算明细表、可行性评估、确认/修改）+ 确认状态落库修复
 - [x] Week5 D4 确认循环前端跑通（确认后「我们会尽快联系您」收尾 + 修改回对话继续）
 - [x] Week5 D5 UI 打磨：移动响应式适配（viewport/dvh/safe-area/16px 输入/44px 触控/表格滚动）+ 错误处理（重试/删除二次确认），tag `m4-frontend`
+- [x] Week5 D5+ 等待体验：SSE 阶段事件（正在理解需求 → 检索案例 → 生成方案…）+ 等待计时，手机端不再像卡死

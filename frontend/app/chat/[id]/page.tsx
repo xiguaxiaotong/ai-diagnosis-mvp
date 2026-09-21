@@ -37,6 +37,8 @@ export default function ChatPage() {
   const [questions, setQuestions] = useState<string[]>([]);
   const [reviseMode, setReviseMode] = useState(false);
   const [confirmBanner, setConfirmBanner] = useState(false);
+  const [stage, setStage] = useState<string | null>(null); // 后端图执行阶段提示
+  const [waitSec, setWaitSec] = useState(0); // 已等待秒数
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -68,6 +70,14 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, streamBuf, busy]);
 
+  // 等待计时：busy 期间每秒 +1，让用户知道系统在响应而非卡死
+  useEffect(() => {
+    if (!busy) return;
+    setWaitSec(0);
+    const t = setInterval(() => setWaitSec((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
+
   /** 解析 SSE 字节流，逐事件回调 */
   async function readSSE(resp: Response, onEvent: (evt: Record<string, unknown>) => void) {
     const reader = resp.body!.getReader();
@@ -98,6 +108,7 @@ export default function ChatPage() {
     setBusy(true);
     setInput("");
     setQuestions([]);
+    setStage(null);
     setMsgs((m) => [...m, { role: "user", content: message }]);
     setStreamBuf("");
 
@@ -117,6 +128,8 @@ export default function ChatPage() {
         if (type === "meta") {
           setPhase(evt.phase as string);
           setQuestions((evt.questions as string[]) ?? []);
+        } else if (type === "stage") {
+          setStage(evt.label as string); // 图节点阶段：「正在生成方案…」等
         } else if (type === "delta") {
           acc += evt.content as string;
           setStreamBuf(acc);
@@ -138,6 +151,7 @@ export default function ChatPage() {
     setError(null);
     setBusy(true);
     setReviseMode(false);
+    setStage(null);
     if (action === "revise") setInput("");
     try {
       const r = await api<{
@@ -292,6 +306,13 @@ export default function ChatPage() {
           >
             查看完整方案 →
           </Link>
+        )}
+
+        {/* 等待状态行：图执行阶段 + 计时（正文开始流式后隐藏） */}
+        {busy && !streamBuf && (
+          <p style={{ fontSize: 12, color: "#94a3b8", margin: "0 0 12px" }}>
+            ⚙ {stage ?? "后端处理中…"}（已等待 {waitSec} 秒）
+          </p>
         )}
 
         {error && <p style={{ color: "#dc2626", fontSize: 13 }}>出错了：{error}</p>}

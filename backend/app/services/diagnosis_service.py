@@ -30,6 +30,48 @@ def _last_assistant_message(state: dict) -> str:
     return ""
 
 
+def _result_from_state(project_id: int, state: dict, next_nodes: set) -> dict:
+    """把图执行后的状态归一化成 API 结果（chat_turn / chat_turn_stream 共用）。"""
+    if "wait_input" in next_nodes:
+        result = {
+            "phase": "clarify",
+            "reply": _last_assistant_message(state),
+            "questions": state.get("clarify_questions", []),
+            "solution": None,
+        }
+    elif "wait_confirmation" in next_nodes:
+        result = {
+            "phase": "confirm_wait",
+            "reply": state.get("final_output", ""),
+            "questions": [],
+            "solution": state.get("full_solution"),
+        }
+    else:
+        result = {
+            "phase": "done",
+            "reply": _last_assistant_message(state),
+            "questions": [],
+            "solution": state.get("full_solution"),
+        }
+        # 用户确认方案 → 项目状态推进（方案页据此展示「已确认」锁定态）
+        if state.get("decision") == "confirmed":
+            if not state.get("finalized"):
+                # 直接确认：final_output 上轮已展示过，本轮换确认收尾话术
+                result["reply"] = (
+                    "好的，方案已确认 ✓ 我们会尽快联系您，对接后续交付安排。"
+                    "完整方案与预算明细可在方案页随时查看。"
+                )
+            _mark_confirmed(project_id)
+    result["revision_round"] = state.get("revision_round", 0)
+    if result["revision_round"] and result["phase"] == "confirm_wait":
+        result["reply"] += (
+            f"\n\n（已按您的要求修改，第 {result['revision_round']}/{MAX_REVISION_ROUNDS} 轮）"
+        )
+    logger.info("[chat_turn] project=%s phase=%s reply=%d 字",
+                project_id, result["phase"], len(result["reply"]))
+    return result
+
+
 def chat_turn(project_id: int, message: str) -> dict:
     """处理一条用户消息：自动判断新会话 / resume，返回归一化结果。
 
@@ -70,44 +112,66 @@ def chat_turn(project_id: int, message: str) -> dict:
         )
 
     next_nodes = set(diagnosis_graph.get_state(cfg).next or ())
-    if "wait_input" in next_nodes:
-        result = {
-            "phase": "clarify",
-            "reply": _last_assistant_message(state),
-            "questions": state.get("clarify_questions", []),
-            "solution": None,
-        }
-    elif "wait_confirmation" in next_nodes:
-        result = {
-            "phase": "confirm_wait",
-            "reply": state.get("final_output", ""),
-            "questions": [],
-            "solution": state.get("full_solution"),
-        }
-    else:
-        result = {
+    return _result_from_state(project_id, state, next_nodes)
+
+
+# 图节点 → 用户可读的阶段提示（等待体验：让用户知道后端真的在做事）
+NODE_STAGE_LABELS = {
+    "understand": "正在理解你的需求…",
+    "ask": "正在整理追问…",
+    "force_finish": "信息收集完成，开始准备方案…",
+    "retrieve": "正在检索相似案例…",
+    "generate": "正在生成方案（最耗时的一步）…",
+    "budget": "正在测算预算…",
+    "feasibility": "正在评估可行性…",
+    "output": "正在汇总方案…",
+    "revise": "正在按你的意见调整方案…",
+    "finalize": "正在生成交付版本…",
+    "reject": "正在收尾…",
+}
+
+
+def chat_turn_stream(project_id: int, message: str):
+    """chat_turn 的生成器版：执行图的过程中逐节点 yield 阶段事件，最后 yield 结果。
+
+    yield ("stage", (节点名, 用户可读提示))   —— 图每执行到一个关键节点
+    yield ("result", 归一化结果 dict)          —— 图执行完毕（与 chat_turn 返回一致）
+    """
+    cfg = _config(project_id)
+    snap = diagnosis_graph.get_state(cfg)
+    next_nodes = set(snap.next or ())
+    values = snap.values or {}
+
+    # 会话已结束 → 不进图，直接返回结果
+    if not next_nodes and values.get("decision") in ("confirmed", "rejected"):
+        yield "stage", ("done", "本次诊断已完成")
+        yield "result", {
             "phase": "done",
-            "reply": _last_assistant_message(state),
+            "reply": _last_assistant_message(values) or "本次诊断已完成。",
             "questions": [],
-            "solution": state.get("full_solution"),
+            "solution": values.get("full_solution"),
+            "revision_round": values.get("revision_round", 0),
         }
-        # 用户确认方案 → 项目状态推进（方案页据此展示「已确认」锁定态）
-        if state.get("decision") == "confirmed":
-            if not state.get("finalized"):
-                # 直接确认：final_output 上轮已展示过，本轮换确认收尾话术
-                result["reply"] = (
-                    "好的，方案已确认 ✓ 我们会尽快联系您，对接后续交付安排。"
-                    "完整方案与预算明细可在方案页随时查看。"
-                )
-            _mark_confirmed(project_id)
-    result["revision_round"] = state.get("revision_round", 0)
-    if result["revision_round"] and result["phase"] == "confirm_wait":
-        result["reply"] += (
-            f"\n\n（已按您的要求修改，第 {result['revision_round']}/{MAX_REVISION_ROUNDS} 轮）"
-        )
-    logger.info("[chat_turn] project=%s phase=%s reply=%d 字",
-                project_id, result["phase"], len(result["reply"]))
-    return result
+        return
+
+    if "wait_input" in next_nodes or "wait_confirmation" in next_nodes:
+        payload: object = Command(resume=message)
+    else:
+        payload = {
+            "project_id": project_id,
+            "raw_idea": message,
+            "messages": [{"role": "user", "content": message}],
+        }
+
+    # stream_mode="updates"：每步产出 {节点名: 更新}，借它发阶段事件
+    for chunk in diagnosis_graph.stream(payload, cfg, stream_mode="updates"):
+        for node in chunk:
+            label = NODE_STAGE_LABELS.get(node)
+            if label:
+                yield "stage", (node, label)
+
+    snap = diagnosis_graph.get_state(cfg)
+    yield "result", _result_from_state(project_id, snap.values or {}, set(snap.next or ()))
 
 
 def _mark_confirmed(project_id: int) -> None:

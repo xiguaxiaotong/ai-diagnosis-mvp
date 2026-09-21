@@ -65,15 +65,32 @@ def _run_and_record(db: Session, project_id: int, message: str) -> dict:
 
 @router.post("/chat")
 def chat(body: ChatRequest, db: Session = Depends(get_db)):
-    """对话诊断入口：SSE 流式返回。"""
+    """对话诊断入口：SSE 流式返回。
+
+    事件序列：stage（图节点阶段，多个）→ meta → delta（多个）→ done。
+    阶段事件让前端在 LLM 执行期间展示「正在理解需求/生成方案…」，
+    避免长等待中用户以为卡死。
+    """
     project = project_service.get_project(db, body.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    result = _run_and_record(db, body.project_id, body.message)
-    extra = {"questions": result["questions"], "revision_round": result["revision_round"]}
+    def sse():
+        result = None
+        for kind, payload in diagnosis_service.chat_turn_stream(body.project_id, body.message):
+            if kind == "stage":
+                node, label = payload
+                yield f"data: {json.dumps({'type': 'stage', 'stage': node, 'label': label}, ensure_ascii=False)}\n\n"
+            else:
+                result = payload
+        # 双向落库（用户消息 + 助手回复）
+        project_service.add_message(db, body.project_id, "user", body.message)
+        project_service.add_message(db, body.project_id, "assistant", result["reply"])
+        extra = {"questions": result["questions"], "revision_round": result["revision_round"]}
+        yield from _stream_reply(result["reply"], result["phase"], extra)
+
     return StreamingResponse(
-        _stream_reply(result["reply"], result["phase"], extra),
+        sse(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
