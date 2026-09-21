@@ -93,6 +93,12 @@ def chat_turn(project_id: int, message: str) -> dict:
         }
         # 用户确认方案 → 项目状态推进（方案页据此展示「已确认」锁定态）
         if state.get("decision") == "confirmed":
+            if not state.get("finalized"):
+                # 直接确认：final_output 上轮已展示过，本轮换确认收尾话术
+                result["reply"] = (
+                    "好的，方案已确认 ✓ 我们会尽快联系您，对接后续交付安排。"
+                    "完整方案与预算明细可在方案页随时查看。"
+                )
             _mark_confirmed(project_id)
     result["revision_round"] = state.get("revision_round", 0)
     if result["revision_round"] and result["phase"] == "confirm_wait":

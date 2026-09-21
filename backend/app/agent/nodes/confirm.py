@@ -95,7 +95,8 @@ def finalize_node(state: DiagnosisState) -> dict:
     )
     messages = list(state.get("messages", []))
     messages.append({"role": "assistant", "content": content})
-    return {"messages": messages, "decision": "confirmed"}
+    # finalized 标记：与「直接确认」区分（chat_turn 据此决定是否补确认话术）
+    return {"messages": messages, "decision": "confirmed", "finalized": True}
 
 
 def reject_node(state: DiagnosisState) -> dict:

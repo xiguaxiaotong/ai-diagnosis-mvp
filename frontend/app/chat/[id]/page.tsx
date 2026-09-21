@@ -36,6 +36,7 @@ export default function ChatPage() {
   const [phase, setPhase] = useState<string>("clarify");
   const [questions, setQuestions] = useState<string[]>([]);
   const [reviseMode, setReviseMode] = useState(false);
+  const [confirmBanner, setConfirmBanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -147,12 +148,18 @@ export default function ChatPage() {
         method: "POST",
         body: JSON.stringify({ action, feedback }),
       });
+      // 动作消息进对话流（与后端 confirm 接口映射文案一致）
+      setMsgs((m) => [
+        ...m,
+        { role: "user", content: action === "confirm" ? "确认，就这样" : (feedback ?? "").trim() },
+      ]);
       setPhase(r.phase);
       setQuestions([]);
       setMsgs((m) => [...m, { role: "assistant", content: r.reply }]);
       if (r.phase === "done") {
-        // 确认完成后跳方案展示页
-        setTimeout(() => router.push(`/project/${projectId}`), 1200);
+        // 确认收尾 → 展示联系承诺横幅，稍后跳方案展示页
+        setConfirmBanner(true);
+        setTimeout(() => router.push(`/project/${projectId}`), 2500);
       }
     } catch (e) {
       setError(String(e));
@@ -225,6 +232,16 @@ export default function ChatPage() {
                 </span>
               )}
             </div>
+          </div>
+        )}
+
+        {/* 确认收尾横幅：「我们会尽快联系您」 */}
+        {confirmBanner && (
+          <div style={{
+            margin: "4px 0 12px", padding: "12px 16px", borderRadius: 10,
+            background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 14, color: "#15803d",
+          }}>
+            ✓ 方案已确认，我们会尽快联系您——正在打开方案页…
           </div>
         )}
 
