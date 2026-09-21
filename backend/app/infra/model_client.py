@@ -145,12 +145,20 @@ class EmbeddingClient:
             return
         # 国内网络走镜像站下载
         os.environ.setdefault("HF_ENDPOINT", HF_ENDPOINT)
-        # 模型已缓存时跳过 HF Hub 版本检查（否则每次启动都发 HEAD 请求，
-        # 被墙后重试 5 次，白卡 5-10 秒）
+        # 模型已缓存时强制走离线模式，跳过 HF Hub 版本 HEAD 检查
+        # （否则每个 config 文件 HEAD 5 次，每次 1+2+4+8+8 = 23 秒 × 3 个 config ≈ 70 秒白等）
+        # 用直接赋值不用 setdefault：setdefault 不会覆盖已经存在的值
         cache_dir = Path(os.getenv(
-            "HF_HOME", Path.home() / ".cache" / "huggingface") ) / "hub"
+            "HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
         if (cache_dir / f"models--{self.model_name.replace('/', '--')}").exists():
-            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+            os.environ["HF_HUB_OFFLINE"] = "1"
+            # transformers 库认这个，不认 HF_HUB_OFFLINE
+            os.environ["TRANSFORMERS_OFFLINE"] = "1"
+            # 关掉版本检查带来的额外 HEAD 请求
+            os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+            logger.info("模型已缓存，启用离线加载: %s", cache_dir)
+        else:
+            logger.info("模型未缓存，将从 %s 首次下载", HF_ENDPOINT)
         from sentence_transformers import SentenceTransformer
 
         logger.info("加载 Embedding 模型: %s (device=%s)", self.model_name, self.device)
