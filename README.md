@@ -51,11 +51,21 @@ AIAgent 赋能服务平台（商业计划书见「初创团队文档」）M0 阶
 
 ## 各阶段验收脚本
 
+M0 基础设施：
+
     cd backend
     python scripts/test_day2.py embed   # Embedding 转向量（无需 key）
     python scripts/test_day2.py chat    # DeepSeek 流式对话（需 key）
     python scripts/test_day3.py         # 数据层 CRUD
     python scripts/test_day4.py         # 调用日志（耗时 + token）
+
+M1-P1 诊断智能体（均需 key）：
+
+    python scripts/test_w2d1.py   # 需求理解：一句话→结构化 JSON
+    python scripts/test_w2d2.py   # 追问闭环：模糊需求→追问→回答→补全
+    python scripts/test_w2d3.py   # interrupt 多轮对话 + 5 轮强制结束
+    python scripts/test_w2d4.py   # 方案生成：业务/技术方案 JSON 校验
+    python scripts/test_w2d5.py   # 端到端：想法→追问→方案
 
 ## 目录结构
 
@@ -63,7 +73,7 @@ AIAgent 赋能服务平台（商业计划书见「初创团队文档」）M0 阶
     ├── main.py          # FastAPI 入口（健康检查 + 项目 CRUD）
     ├── config.py        # 统一配置（.env 自动加载）
     ├── infra/           # P5 模型客户端 + 日志回调
-    ├── agent/           # P1 诊断智能体（后续阶段）
+    ├── agent/           # P1 诊断智能体（LangGraph 图 + 5 类节点）
     ├── retrieval/       # P2 案例检索（后续阶段）
     ├── services/        # 业务服务（project_service 等）
     └── db/              # P10 数据层（4 张表）
@@ -73,11 +83,25 @@ AIAgent 赋能服务平台（商业计划书见「初创团队文档」）M0 阶
     ├── components/      # 组件（后续阶段）
     └── lib/api.ts       # 后端 API 封装
 
-## 项目状态：M0 (tag: m0-base)
+## 项目状态
+
+### M0 (tag: m0-base)
 
 - [x] Day1 项目骨架 + FastAPI/Next.js 启动
 - [x] Day2 模型客户端（DeepSeek 流式 + bge 本地 Embedding）
 - [x] Day3 数据层（SQLite + SQLAlchemy，4 张表 + CRUD）
 - [x] Day4 回调日志（每次调用耗时 + token）
 - [x] Day5 前后端联调 + README + git tag
-- [ ] M1 诊断智能体（LangGraph 多节点流程）
+
+### M1-P1 诊断智能体
+
+- [x] Week2 D1 需求理解节点（口语化需求 → ProjectRequirements JSON）
+- [x] Week2 D2 条件路由 + 追问节点（信息不足自动追问）
+- [x] Week2 D3 interrupt 多轮对话 + checkpointer + 5 轮强制结束
+- [x] Week2 D4 方案生成节点（业务模块/技术选型/分期/风险，预算区间）
+- [x] Week2 D5 端到端测试（想法 → 追问 → 方案）
+
+### 下一步：M1-P2
+
+- [ ] 案例检索（向量库 + 历史项目相似案例）
+- [ ] FastAPI 流式诊断接口 + 前端对话页接入
