@@ -17,6 +17,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.nodes.ask import ask_node, wait_input_node
+from app.agent.nodes.budget import budget_node
 from app.agent.nodes.check import ROUTE_ASK, ROUTE_DONE, ROUTE_FORCE, check_completeness
 from app.agent.nodes.force import force_finish_node
 from app.agent.nodes.generate import generate_node
@@ -32,6 +33,7 @@ def build_graph():
     g.add_node("wait_input", wait_input_node)
     g.add_node("force_finish", force_finish_node)
     g.add_node("generate", generate_node)
+    g.add_node("budget", budget_node)
 
     g.add_edge(START, "understand")
     g.add_conditional_edges(
@@ -43,7 +45,8 @@ def build_graph():
     # 用户回答后回到 understand 重新理解 → 追问循环
     g.add_edge("wait_input", "understand")
     g.add_edge("force_finish", "generate")
-    g.add_edge("generate", END)
+    g.add_edge("generate", "budget")
+    g.add_edge("budget", END)
 
     # MemorySaver：进程内 checkpoint，interrupt 恢复必需。
     # 生产环境换 PostgresSaver/RedisSaver，接口不变。

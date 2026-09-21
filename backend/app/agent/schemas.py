@@ -72,3 +72,28 @@ class SolutionPlan(BaseModel):
     key_risks: list[str] = Field(
         description="关键风险提示，2-4 条，如第三方依赖、数据合规、工期风险"
     )
+
+
+class BudgetLineItem(BaseModel):
+    """预算明细行：每一项钱的来源。"""
+
+    item: str = Field(description="计价项，如：扫码点单（P0 模块）")
+    basis: str = Field(description="计价依据，如：P0 模块单价 8000-12000 元")
+    min_amount: int = Field(description="该项最低金额（元）")
+    max_amount: int = Field(description="该项最高金额（元）")
+
+
+class BudgetEstimate(BaseModel):
+    """预算测算节点的结构化输出（规则引擎产出，非 LLM）。
+
+    商业计划书硬性要求：预算必须是区间，不定值。
+    """
+
+    currency: str = Field(default="CNY", description="币种")
+    total_min: int = Field(description="预算区间下限（元）")
+    total_max: int = Field(description="预算区间上限（元）")
+    line_items: list[BudgetLineItem] = Field(description="预算明细，逐项列出钱的构成")
+    assumptions: list[str] = Field(description="测算假设，如工期加急、需对接现有系统")
+    budget_match: str = Field(
+        description="与用户提及预算的对比结论；用户未提预算则为「用户未提及预算」"
+    )
