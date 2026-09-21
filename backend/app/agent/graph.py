@@ -35,6 +35,7 @@ from app.agent.nodes.feasibility import feasibility_node
 from app.agent.nodes.force import force_finish_node
 from app.agent.nodes.generate import generate_node
 from app.agent.nodes.output import output_node
+from app.agent.nodes.retrieve import retrieve_node
 from app.agent.nodes.understand import understand_node
 from app.agent.state import DiagnosisState
 
@@ -46,6 +47,7 @@ def build_graph():
     g.add_node("ask", ask_node)
     g.add_node("wait_input", wait_input_node)
     g.add_node("force_finish", force_finish_node)
+    g.add_node("retrieve", retrieve_node)
     g.add_node("generate", generate_node)
     g.add_node("budget", budget_node)
     g.add_node("feasibility", feasibility_node)
@@ -59,12 +61,12 @@ def build_graph():
     g.add_conditional_edges(
         "understand",
         check_completeness,
-        {ROUTE_ASK: "ask", ROUTE_DONE: "generate", ROUTE_FORCE: "force_finish"},
+        {ROUTE_ASK: "ask", ROUTE_DONE: "retrieve", ROUTE_FORCE: "force_finish"},
     )
     g.add_edge("ask", "wait_input")
     # 用户回答后回到 understand 重新理解 → 追问循环
     g.add_edge("wait_input", "understand")
-    g.add_edge("force_finish", "generate")
+    g.add_edge("force_finish", "retrieve")
     g.add_edge("generate", "budget")
     g.add_edge("budget", "feasibility")
     g.add_edge("feasibility", "output")
@@ -75,8 +77,9 @@ def build_graph():
         review_router,
         {ROUTE_CONFIRMED: END, ROUTE_REVISED: "revise", ROUTE_MAXED: "finalize", ROUTE_REJECTED: "reject"},
     )
-    # 修改后重跑 generate → budget → feasibility → output → 再次等确认（轮次受 review_router 限制）
-    g.add_edge("revise", "generate")
+    # 修改后重新检索案例 → 重跑 generate → budget → feasibility → output
+    g.add_edge("revise", "retrieve")
+    g.add_edge("retrieve", "generate")
     g.add_edge("finalize", END)
     g.add_edge("reject", END)
 

@@ -26,10 +26,25 @@ def generate_node(state: DiagnosisState) -> dict:
     # 用户确认循环中的修改要求（首轮生成时为空）
     feedback = (state.get("revision_feedback") or "").strip()
     feedback_section = f"\n## 用户修改要求（必须落实到方案中）\n\n{feedback}\n" if feedback else ""
+
+    # 相似历史案例（retrieve 节点写入；空则不加该段）
+    cases = state.get("retrieved_cases") or []
+    cases_section = ""
+    if cases:
+        lines = [
+            f"- 《{c['title']}》"
+            f"{f"[{c['industry']}] " if c.get('industry') else ''}"
+            f"{c['summary']}（相似度 {c['score']:.2f}）"
+            for c in cases
+        ]
+        cases_section = "\n## 相似历史案例（真实项目复盘，供参考）\n\n" + "\n".join(lines) + "\n"
+        logger.info("[generate] 注入 %d 个相似案例", len(cases))
+
     prompt = render(
         "generate",
         requirements_json=json.dumps(requirements, ensure_ascii=False, indent=2),
         revision_feedback=feedback_section,
+        similar_cases=cases_section,
     )
 
     # 方案生成用 0.3 温度：比抽取稍高留一点创造性，但保证结构稳定

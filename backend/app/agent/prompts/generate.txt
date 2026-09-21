@@ -4,6 +4,7 @@
 
 {{requirements_json}}
 {{revision_feedback}}
+{{similar_cases}}
 ## 方案要求
 
 1. project_name：沿用需求中的项目名称，可微调使其更清晰
@@ -18,6 +19,9 @@
 6. implementation_phases：给 2-3 期实施计划，每期一句话说清交付什么，
    第一期必须覆盖全部 P0 模块
 7. key_risks：2-4 条客户需要知道的风险（第三方依赖、数据合规、工期、运维等）
+8. 若提供了相似历史案例：可借鉴其模块拆分与选型思路，并在 tech_architecture
+   或 tech_stack[].reason 中自然引用案例名（如「参考《xx案例》的做法」）；
+   案例与需求不相关则忽略，严禁编造不存在的案例
 
 ## 输出格式
 
