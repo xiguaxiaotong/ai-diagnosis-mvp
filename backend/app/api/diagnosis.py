@@ -16,13 +16,13 @@ import logging
 import time
 from typing import Any, Iterator, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.services import diagnosis_service, project_service
+from app.services import diagnosis_service, file_extract, project_service
 
 logger = logging.getLogger(__name__)
 
@@ -63,29 +63,22 @@ def _run_and_record(db: Session, project_id: int, message: str) -> dict:
     return result
 
 
-@router.post("/chat")
-def chat(body: ChatRequest, db: Session = Depends(get_db)):
-    """对话诊断入口：SSE 流式返回。
+def _chat_sse_response(db: Session, project_id: int, message: str) -> StreamingResponse:
+    """对话轮公共 SSE 响应（文本消息与文件上传消息共用）。
 
     事件序列：stage（图节点阶段，多个）→ meta → delta（多个）→ done。
-    阶段事件让前端在 LLM 执行期间展示「正在理解需求/生成方案…」，
-    避免长等待中用户以为卡死。
     """
-    project = project_service.get_project(db, body.project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
-
     def sse():
         result = None
-        for kind, payload in diagnosis_service.chat_turn_stream(body.project_id, body.message):
+        for kind, payload in diagnosis_service.chat_turn_stream(project_id, message):
             if kind == "stage":
                 node, label = payload
                 yield f"data: {json.dumps({'type': 'stage', 'stage': node, 'label': label}, ensure_ascii=False)}\n\n"
             else:
                 result = payload
         # 双向落库（用户消息 + 助手回复）
-        project_service.add_message(db, body.project_id, "user", body.message)
-        project_service.add_message(db, body.project_id, "assistant", result["reply"])
+        project_service.add_message(db, project_id, "user", message)
+        project_service.add_message(db, project_id, "assistant", result["reply"])
         extra = {"questions": result["questions"], "revision_round": result["revision_round"]}
         yield from _stream_reply(result["reply"], result["phase"], extra)
 
@@ -94,6 +87,45 @@ def chat(body: ChatRequest, db: Session = Depends(get_db)):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/chat")
+def chat(body: ChatRequest, db: Session = Depends(get_db)):
+    """对话诊断入口：SSE 流式返回。"""
+    project = project_service.get_project(db, body.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    return _chat_sse_response(db, body.project_id, body.message)
+
+
+@router.post("/chat/upload")
+async def chat_upload(
+    project_id: int = Form(...),
+    note: str = Form(""),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """文件上传对话：提取文件文本（txt/docx/pdf/图片OCR）→ 作为用户消息进诊断流。
+
+    文件内容进入对话历史后，AI 会结合数据更新方案（如按真实预算/规模修正报价）。
+    """
+    project = project_service.get_project(db, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    data = await file.read()
+    try:
+        text = file_extract.extract_text(file.filename, data)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    content = f"[用户上传文件「{file.filename}」（提取 {len(text)} 字）]"
+    if note.strip():
+        content += f"\n用户说明：{note.strip()}"
+    content += f"\n文件内容：\n{text}"
+    logger.info("[chat_upload] project=%s file=%s extracted=%d 字",
+                project_id, file.filename, len(text))
+    return _chat_sse_response(db, project_id, content)
 
 
 @router.get("/project/{project_id}")

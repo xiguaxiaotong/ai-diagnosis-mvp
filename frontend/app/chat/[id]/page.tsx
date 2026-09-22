@@ -7,6 +7,12 @@ import { api, API_BASE } from "../../../lib/api";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+/** 历史消息里的文件上传消息 → 摘要显示（文件全文太长，不直接渲染） */
+function fileTagOf(content: string): string | null {
+  const m = content.match(/^\[用户上传文件「(.+?)」（提取 (\d+) 字）\]/);
+  return m ? `📎 ${m[1]}（AI 已读取 ${m[2]} 字）` : null;
+}
+
 interface ProjectDetail {
   id: number;
   title: string;
@@ -36,6 +42,9 @@ export default function ChatPage() {
   const [streamBuf, setStreamBuf] = useState<string | null>(null); // 流式中的助手回复
   const [phase, setPhase] = useState<string>("clarify");
   const [questions, setQuestions] = useState<string[]>([]);
+  const [activeQuestion, setActiveQuestion] = useState<string | null>(null); // 当前正在回答的追问
+  const [file, setFile] = useState<File | null>(null); // 待上传附件
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [reviseMode, setReviseMode] = useState(false);
   const [confirmBanner, setConfirmBanner] = useState(false);
   const [stage, setStage] = useState<string | null>(null); // 后端图执行阶段提示
@@ -110,26 +119,40 @@ export default function ChatPage() {
     }
   }
 
-  /** 发送一条普通消息（走 /api/chat SSE 流式）
+  /** 发送一条消息（走 /api/chat 或带文件的 /api/chat/upload，SSE 流式）
    *  opts.explicitConfirm：用户主动点「确认方案」→ 完成后展示横幅并跳方案页；
-   *  满轮强制收尾等非主动确认的 done 不跳页（不擅自替用户当作已确认）。 */
-  async function send(text: string, opts?: { explicitConfirm?: boolean }) {
+   *  满轮强制收尾等非主动确认的 done 不跳页（不擅自替用户当作已确认）。
+   *  file：附件（txt/docx/pdf/图片），后端提取文本后作为消息上下文。 */
+  async function send(text: string, opts?: { explicitConfirm?: boolean }, file?: File | null) {
     const message = text.trim();
-    if (!message || busy) return;
+    if ((!message && !file) || busy) return;
     setError(null);
     setBusy(true);
     setInput("");
     setQuestions([]);
     setStage(null);
-    setMsgs((m) => [...m, { role: "user", content: message }]);
+    setMsgs((m) => [
+      ...m,
+      { role: "user", content: file ? `📎 ${file.name}${message ? `\n说明：${message}` : ""}` : message },
+    ]);
     setStreamBuf("");
 
     let lastPhase = "";
     try {
-      const resp = await fetch(`${API_BASE}/api/chat`, {
+      const resp = await fetch(file ? `${API_BASE}/api/chat/upload` : `${API_BASE}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, message }),
+        ...(file
+          ? { body: (() => {
+              const fd = new FormData();
+              fd.append("project_id", String(projectId));
+              fd.append("note", message);
+              fd.append("file", file);
+              return fd;
+            })() }
+          : {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_id: projectId, message }),
+            }),
       });
       if (!resp.ok || !resp.body) {
         throw new Error(`API ${resp.status}: ${await resp.text()}`);
@@ -177,6 +200,26 @@ export default function ChatPage() {
     send(text, { explicitConfirm: action === "confirm" });
   }
 
+  /** 组装输入并发送：有「当前问题」时自动带上问题上下文（AI 能对号入座）；
+   *  有附件时优先走上传通道（输入文字作为附件说明） */
+  function submitInput() {
+    const text = input.trim();
+    if (!text && !file) return;
+    const f = file;
+    setFile(null);
+    if (f) {
+      send(text, undefined, f);
+      return;
+    }
+    if (activeQuestion) {
+      const q = activeQuestion;
+      setActiveQuestion(null);
+      send(`「${q}」我的回答：${text}`);
+    } else {
+      send(text);
+    }
+  }
+
   const inputDisabled = busy || phase === "done";
 
   return (
@@ -222,7 +265,7 @@ export default function ChatPage() {
                 borderBottomLeftRadius: m.role === "user" ? 12 : 4,
               }}
             >
-              {m.content}
+              {fileTagOf(m.content) ?? m.content}
             </div>
           </div>
         ))}
@@ -254,24 +297,25 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* 追问快捷填充 */}
+        {/* 追问快捷选择：点击设为「当前问题」，输入框留给用户自由作答 */}
         {phase === "clarify" && questions.length > 0 && !busy && (
           <div style={{ margin: "4px 0 12px" }}>
             {questions.map((q, i) => (
               <button
                 key={i}
-                onClick={() => setInput((v) => (v ? v + "；" : "") + `「${q}」我的回答：`)}
+                onClick={() => setActiveQuestion((v) => (v === q ? null : q))}
                 style={{
                   display: "block", margin: "0 0 8px", padding: "10px 12px", maxWidth: "85%",
                   minHeight: 40,
-                  background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe",
+                  background: activeQuestion === q ? "#dbeafe" : "#eff6ff",
+                  color: "#2563eb", border: `1px solid ${activeQuestion === q ? "#93c5fd" : "#bfdbfe"}`,
                   borderRadius: 8, fontSize: 13, cursor: "pointer", textAlign: "left",
                 }}
               >
-                💡 {q}
+                {activeQuestion === q ? "📌" : "💡"} {q}
               </button>
             ))}
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>点击问题填入模板，在「我的回答：」后面补充实际情况再发送</span>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>点击问题设为「当前问题」，可往上翻聊天记录，想好再答</span>
           </div>
         )}
 
@@ -315,14 +359,71 @@ export default function ChatPage() {
       </div>
 
       {/* 输入区（safe-area 兜底 iPhone 底部横条） */}
+      {/* 当前问题提示条：用户可看着问题、翻聊天记录，再自由作答 */}
+      {activeQuestion && phase === "clarify" && !busy && (
+        <div style={{
+          margin: "0 0 8px", padding: "8px 12px", background: "#eff6ff",
+          border: "1px solid #bfdbfe", borderRadius: 8, display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{ flex: 1, fontSize: 13, color: "#2563eb" }}>
+            📌 当前问题：{activeQuestion}
+          </span>
+          <button
+            onClick={() => setActiveQuestion(null)}
+            style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 14, cursor: "pointer", padding: "4px" }}
+            aria-label="取消当前问题"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {/* 待发送附件预览 */}
+      {file && !busy && (
+        <div style={{
+          margin: "0 0 8px", padding: "8px 12px", background: "#f9fafb",
+          border: "1px solid #e5e7eb", borderRadius: 8, display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{ flex: 1, fontSize: 13, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            📎 {file.name}（{Math.max(1, Math.round(file.size / 1024))} KB）
+          </span>
+          <button
+            onClick={() => setFile(null)}
+            style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 14, cursor: "pointer", padding: 4 }}
+            aria-label="移除附件"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div style={{ borderTop: "1px solid #e5e7eb", padding: "12px 0 calc(12px + env(safe-area-inset-bottom))", display: "flex", gap: 10, alignItems: "flex-end" }}>
+        <label
+          style={{
+            minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", justifyContent: "center",
+            border: "1px solid #d1d5db", borderRadius: 10, fontSize: 18, cursor: inputDisabled ? "not-allowed" : "pointer",
+            background: inputDisabled ? "#f3f4f6" : "#fff", userSelect: "none",
+          }}
+          title="上传数据文件（txt/docx/pdf/图片），AI 会根据内容调整方案"
+        >
+          📎
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.md,.csv,.json,.log,.docx,.pdf,.png,.jpg,.jpeg,.bmp,.webp"
+            style={{ display: "none" }}
+            disabled={inputDisabled}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+        </label>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (reviseMode) confirmAction("revise", input); else send(input);
+              if (reviseMode) confirmAction("revise", input); else submitInput();
             }
           }}
           placeholder={
@@ -330,7 +431,11 @@ export default function ChatPage() {
               ? "本次诊断已完成"
               : reviseMode
                 ? "描述需要修改的地方，如：预算砍到 5 万以内…"
-                : "补充你的业务情况…（Enter 发送，Shift+Enter 换行）"
+                : file
+                  ? "为附件补充说明（可选），Enter 发送…"
+                  : activeQuestion
+                    ? "说说你的情况…（发送时自动带上当前问题）"
+                    : "补充你的业务情况…（Enter 发送，Shift+Enter 换行）"
           }
           rows={2}
           disabled={inputDisabled}
@@ -341,8 +446,8 @@ export default function ChatPage() {
           }}
         />
         <button
-          onClick={() => (reviseMode ? confirmAction("revise", input) : send(input))}
-          disabled={inputDisabled || !input.trim()}
+          onClick={() => (reviseMode ? confirmAction("revise", input) : submitInput())}
+          disabled={inputDisabled || (!input.trim() && !file)}
           style={{
             minHeight: 44, padding: "0 22px", fontSize: 15, borderRadius: 10, border: "none",
             background: inputDisabled || !input.trim() ? "#9ca3af" : "#2563eb",

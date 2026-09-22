@@ -14,6 +14,7 @@
 """
 
 import logging
+import re
 
 from app.agent.schemas import BudgetEstimate, BudgetLineItem
 from app.agent.state import DiagnosisState
@@ -53,6 +54,35 @@ MIN_TOTAL = 20_000
 
 def _hit_keywords(text: str, keywords: tuple[str, ...]) -> bool:
     return any(k in text for k in keywords)
+
+
+_BUDGET_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(万|w|W|k|K)?")
+
+
+def parse_budget(mentioned) -> int | None:
+    """从用户表述中解析预算上限（元）。
+
+    「10万」「10w」「100000」「预算 5-8 万」「1000块钱」→ 100000 / 100000 / 100000 / 80000 / 1000。
+    区间取较大值（预算上限口径）；解析不出或数值明显不是金额（<100 或 >1 亿）返回 None。
+    """
+    if not mentioned:
+        return None
+    text = str(mentioned).replace(",", "").replace("，", "")
+    matches = _BUDGET_NUM.findall(text)
+    if not matches:
+        return None
+    values = []
+    for num, unit in matches:
+        v = float(num)
+        if unit in ("万", "w", "W"):
+            v *= 10_000
+        elif unit in ("k", "K"):
+            v *= 1_000
+        values.append(v)
+    result = int(max(values))
+    if result < 100 or result > 100_000_000:
+        return None
+    return result
 
 
 def estimate_budget(plan: dict, requirements: dict | None) -> dict:
@@ -123,6 +153,25 @@ def estimate_budget(plan: dict, requirements: dict | None) -> dict:
     # 5. 兜底与取整（千元）
     total_min = max(total_min, MIN_TOTAL)
     total_max = max(total_max, total_min + 5_000)  # 区间至少拉开 5k
+
+    # 5.5 用户明确预算硬约束：报价必须以用户口径为准，不得自说自话
+    #   - 预算可信（≥ 最低可行成本）：区间收敛进预算，上限贴预算（预算驱动范围）
+    #   - 预算过低（< 最低可行成本）：区间保持现实成本，budget_match 明确警示
+    user_budget = parse_budget((requirements or {}).get("mentioned_budget"))
+    if user_budget:
+        if total_max > user_budget >= MIN_TOTAL:
+            # 超出预算：收敛到预算内，并提示裁剪需求
+            total_min = min(total_min, int(user_budget * 0.6))
+            total_max = user_budget
+            assumptions.append(
+                f"用户明确预算 {user_budget} 元，报价已收敛至预算内；"
+                "建议砍掉 P1/P2 模块或分期实施以匹配成本"
+            )
+        elif total_max <= user_budget:
+            # 预算充足：上限贴用户预算（外包报价常规：预算决定范围），但防止虚高
+            total_max = min(user_budget, max(total_max, total_min * 2))
+            assumptions.append(f"用户明确预算 {user_budget} 元，报价上限按预算口径收敛")
+
     total_min = round(total_min, -3)
     total_max = round(total_max, -3)
 
@@ -132,8 +181,21 @@ def estimate_budget(plan: dict, requirements: dict | None) -> dict:
 
     # 6. 与用户提及预算对比
     mentioned = (requirements or {}).get("mentioned_budget")
-    if mentioned:
-        budget_match = f"用户提及预算「{mentioned}」，测算区间为 {total_min}-{total_max} 元，需与用户确认是否匹配"
+    if user_budget:
+        if total_max <= user_budget and total_max > user_budget * 0.3:
+            budget_match = f"用户明确预算「{mentioned}」，测算区间 {total_min}-{total_max} 元，在预算内"
+        elif user_budget < MIN_TOTAL:
+            budget_match = (
+                f"用户预算「{mentioned}」低于最低可行成本（{MIN_TOTAL} 元），"
+                "该金额无法交付完整方案，需向用户说明并协商缩减需求范围"
+            )
+        else:
+            budget_match = (
+                f"用户明确预算「{mentioned}」，测算区间 {total_min}-{total_max} 元"
+                "（预算较充足，可覆盖更多 P1/P2 功能或预留迭代资金）"
+            )
+    elif mentioned:
+        budget_match = f"用户提及预算「{mentioned}」但无法解析具体金额，测算区间为 {total_min}-{total_max} 元，需与用户确认"
     else:
         budget_match = "用户未提及预算"
 
