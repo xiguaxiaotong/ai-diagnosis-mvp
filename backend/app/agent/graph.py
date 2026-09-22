@@ -22,6 +22,7 @@ from app.agent.nodes.budget import budget_node
 from app.agent.nodes.check import ROUTE_ASK, ROUTE_DONE, ROUTE_FORCE, check_completeness
 from app.agent.nodes.confirm import (
     ROUTE_CONFIRMED,
+    ROUTE_CONSULT,
     ROUTE_MAXED,
     ROUTE_REJECTED,
     ROUTE_REVISED,
@@ -30,6 +31,12 @@ from app.agent.nodes.confirm import (
     review_router,
     revise_node,
     wait_confirmation_node,
+)
+from app.agent.nodes.consult import (
+    ROUTE_REQUIREMENT,
+    consult_node,
+    consult_router,
+    route_intent_node,
 )
 from app.agent.nodes.feasibility import feasibility_node
 from app.agent.nodes.force import force_finish_node
@@ -56,26 +63,40 @@ def build_graph():
     g.add_node("revise", revise_node)
     g.add_node("finalize", finalize_node)
     g.add_node("reject", reject_node)
+    g.add_node("route_intent", route_intent_node)
+    g.add_node("consult", consult_node)
 
-    g.add_edge(START, "understand")
+    g.add_edge(START, "route_intent")
+    g.add_conditional_edges(
+        "route_intent",
+        lambda s: "consult" if s.get("intent") == "consult" else "understand",
+        {"consult": "consult", "understand": "understand"},
+    )
     g.add_conditional_edges(
         "understand",
         check_completeness,
         {ROUTE_ASK: "ask", ROUTE_DONE: "retrieve", ROUTE_FORCE: "force_finish"},
     )
     g.add_edge("ask", "wait_input")
-    # 用户回答后回到 understand 重新理解 → 追问循环
-    g.add_edge("wait_input", "understand")
+    # 用户回答后先意图分流：咨询 → consult 回复后继续等输入；需求 → understand 重新理解
+    g.add_edge("wait_input", "route_intent")
     g.add_edge("force_finish", "retrieve")
     g.add_edge("generate", "budget")
     g.add_edge("budget", "feasibility")
     g.add_edge("feasibility", "output")
-    # 方案确认循环：output → interrupt 等确认 → 确认/修改/拒绝/满轮
+    # 方案确认循环：output → interrupt 等确认 → 确认/修改/拒绝/咨询/满轮
     g.add_edge("output", "wait_confirmation")
     g.add_conditional_edges(
         "wait_confirmation",
         review_router,
-        {ROUTE_CONFIRMED: END, ROUTE_REVISED: "revise", ROUTE_MAXED: "finalize", ROUTE_REJECTED: "reject"},
+        {ROUTE_CONFIRMED: END, ROUTE_REVISED: "revise", ROUTE_MAXED: "finalize",
+         ROUTE_REJECTED: "reject", ROUTE_CONSULT: "consult"},
+    )
+    # 咨询回复后：方案已出 → 回确认环节继续等；否则回追问等待输入
+    g.add_conditional_edges(
+        "consult",
+        consult_router,
+        {"wait_confirmation": "wait_confirmation", "wait_input": "wait_input"},
     )
     # 修改后重新检索案例 → 重跑 generate → budget → feasibility → output
     g.add_edge("revise", "retrieve")

@@ -29,18 +29,25 @@ MAX_REVISION_ROUNDS = 3
 _REJECT_KEYWORDS = ("不要了", "算了", "不做", "不用了", "拒绝", "取消吧", "重新再来")
 _CONFIRM_KEYWORDS = ("确认", "没问题", "可以了", "就这样", "就这个", "同意", "通过", "ok", "行，")
 
+ROUTE_CONSULT = "consult"  # 用户在咨询（问报价构成等）→ 回咨询，不推进方案
+
 
 def classify_decision(text: str) -> str:
-    """用户回复 → 意图：confirmed / revised / rejected。
+    """用户回复 → 意图：confirmed / revised / rejected / consult。
 
     拒绝优先级最高（避免「不要会员模块了」误判为确认）；
-    其次确认；其余一律视为修改意见。
+    其次确认；再次咨询（问句不该触发重新生成方案）；
+    其余一律视为修改意见。
     """
+    from app.agent.nodes.consult import is_consult
+
     t = text.strip().lower()
     if any(k in t for k in _REJECT_KEYWORDS):
         return "rejected"
     if any(k in t for k in _CONFIRM_KEYWORDS):
         return "confirmed"
+    if is_consult(t):
+        return "consult"
     return "revised"
 
 
@@ -56,18 +63,24 @@ def wait_confirmation_node(state: DiagnosisState) -> dict:
     return {
         "messages": messages,
         "decision": decision,
-        # 修改意见要透传给 generate 重新出方案
+        # 修改意见要透传给 generate 重新出方案；咨询由 router 分流到 consult 节点
         "revision_feedback": user_reply if decision == "revised" else "",
     }
 
 
 def review_router(state: DiagnosisState) -> str:
-    """条件边：确认结束 / 修改（未满轮）→ revise / 满轮 → finalize / 拒绝 → reject。"""
+    """条件边：确认结束 / 修改（未满轮）→ revise / 满轮 → finalize / 拒绝 → reject。
+
+    咨询（问报价构成等）→ consult 节点回复，回到 wait_confirmation 继续等确认，
+    不消耗修改轮次、不动方案。
+    """
     decision = state.get("decision")
     if decision == "confirmed":
         return ROUTE_CONFIRMED
     if decision == "rejected":
         return ROUTE_REJECTED
+    if decision == "consult":
+        return ROUTE_CONSULT
     if state.get("revision_round", 0) >= MAX_REVISION_ROUNDS:
         return ROUTE_MAXED
     return ROUTE_REVISED

@@ -142,6 +142,7 @@ def chat_turn(project_id: int, message: str) -> dict:
 # 图节点 → 用户可读的阶段提示（等待体验：让用户知道后端真的在做事）
 NODE_STAGE_LABELS = {
     "understand": "正在理解你的需求…",
+    "consult": "正在回答你的咨询…",
     "ask": "正在整理追问…",
     "force_finish": "信息收集完成，开始准备方案…",
     "retrieve": "正在检索相似案例…",
