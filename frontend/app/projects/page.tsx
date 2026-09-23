@@ -101,6 +101,7 @@ export default function ProjectsPage() {
               borderRadius: radius.md,
               padding: `${space.base}px ${space.xl}px`,
               marginBottom: space.base,
+              boxShadow: colors.shadow.card,
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",

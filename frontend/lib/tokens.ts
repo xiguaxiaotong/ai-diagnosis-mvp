@@ -17,7 +17,8 @@
  *  否则 as const 的字面量类型会让不同主题互相不兼容、build 报错） */
 export interface ThemeColors {
   brand: {
-    primary: string; primaryBg: string; primaryBgPressed: string;
+    primary: string; primaryHover: string; primaryPressed: string;
+    primaryBg: string; primaryBgPressed: string;
     primaryBorder: string; primaryBorderPressed: string;
     /** 用于正文/边框/链接（落在 bg.page / bg.surface 上）—— 必须满足 WCAG AA 4.5:1
      *  对比度。暗色主题的 primary 偏暗，单独声明一个更亮的可读版 */
@@ -34,30 +35,35 @@ export interface ThemeColors {
   border: { default: string; subtle: string; row: string };
   bg: { page: string; surface: string; muted: string; disabled: string };
   muted: { fg: string; bg: string };
+  /** 卡片浮起阴影：浅色主题柔和投影（页面浅灰托白卡），深色主题分层靠背景亮度差、给 none */
+  shadow: { card: string };
 }
 
-/** 暗夜紫：CodeBuddy 控制台风格（默认主题） */
+/** 暗夜紫：高端/神秘/年轻/夜间。高级感关键：底色带紫调不纯黑，
+ *  页面 #14121C → 卡片 #1D1A28 → 悬浮/输入 #252133 亮三档分层 */
 const DARK_COLORS: ThemeColors = {
   brand: {
-    primary: "#6d4fe3",           // 主按钮、链接（紫，饱和度压低一档，手机不刺眼）
-    primaryBg: "#2b2352",         // 品牌暗底（badge/问号按钮）
-    primaryBgPressed: "#382d68",  // 品牌更亮暗底（激活态）
-    primaryBorder: "#4c3f8f",     // 品牌边框
-    primaryBorderPressed: "#6a58c4", // 品牌亮边框（激活态）
-    // 暗色主题下 primary 在 bg.surface 上对比度只有 ~3.7:1（< WCAG AA 4.5:1），
-    // 链接/描边按钮在深色上看不清——这里专门给"文字+边框"用的更亮版
-    linkText: "#a78bfa",          // purple-400，落在 bg.page/bg.surface 上约 7:1
-    onPrimaryBg: "#e8eaf0",       // 落在 primaryBg 上的文字（chip/badge 内），反色白
+    primary: "#7c5cfc",           // 主按钮（亮紫，深底上足够跳）
+    primaryHover: "#8d70ff",      // 桌面 hover：亮一档
+    primaryPressed: "#6a4ae0",    // 按下：暗一档
+    primaryBg: "#2a2350",         // 品牌染色暗底（chip/约束横幅）
+    primaryBgPressed: "#3a2f6e",  // chip 选中染色底
+    primaryBorder: "#4a4266",     // 品牌边框 = 次按钮描边（雾紫）
+    primaryBorderPressed: "#7c5cfc", // 激活态边框直接用主色，选中更醒目
+    // 暗色主题下 primary 在 bg.surface 上对比度不足 AA，
+    // 链接/描边按钮文字用专门的可读亮版
+    linkText: "#a78bfa",          // purple-400，落在新深底上 ≥ 4.5:1
+    onPrimaryBg: "#f2f0f7",       // 染色底上的文字（近白）
   },
   text: {
-    primary: "#e8eaf0",           // 主标题/正文（近白）
-    secondary: "#9aa1ad",         // 次级文字/说明
-    tertiary: "#c3c8d2",          // 中性文字（表格内文等）
-    inverse: "#fff",              // 反色文字（紫底按钮内文字）
+    primary: "#f2f0f7",           // 主文字（带紫调的近白）
+    secondary: "#a79fb8",         // 次文字（紫灰）
+    tertiary: "#c9c2d9",          // 中性文字（表格内文等）
+    inverse: "#fff",              // 反色文字（紫底按钮内）
   },
   status: {
-    success: "#4ade80",
-    successStrong: "#86efac",
+    success: "#34d399",           // 成功徽章：亮绿（深底上醒目）
+    successStrong: "#6ee7b7",
     successBg: "#12291d",
     successBorder: "#245c3c",
     danger: "#f87171",
@@ -67,42 +73,46 @@ const DARK_COLORS: ThemeColors = {
     caution: "#fbbf24", cautionBg: "#2d2410",
   },
   border: {
-    default: "#3a3d4a",   // 输入框/普通按钮边框
-    subtle: "#2a2d38",    // 卡片/分隔线
-    row: "#22242d",       // 表格行分隔
+    default: "#4a4266",   // 输入框/次按钮描边（雾紫）
+    subtle: "#2c2740",    // 卡片边/分隔线（紫调）
+    row: "#251f36",       // 表格行分隔（比 subtle 再暗半档）
   },
   bg: {
-    page: "#0f1016",      // 页面背景（暗夜）
-    surface: "#17181f",   // 卡片/输入框（微亮一档）
-    muted: "#1d1e26",     // 弱底色（附件预览）
-    disabled: "#232430", // 输入框 disabled 状态
+    page: "#14121c",      // 页面底（带紫调的深黑）
+    surface: "#1d1a28",   // 卡片（亮一档）
+    muted: "#252133",     // 输入框/悬浮（再亮一档，三档分层）
+    disabled: "#2c2839",  // disabled 再亮半档
   },
   muted: {
-    fg: "#6b7280",        // 占位符/disabled 文字
-    bg: "#33364a",        // disabled 按钮背景
+    fg: "#6e6780",        // 占位符/disabled 文字（紫灰）
+    bg: "#3a3450",        // disabled 按钮背景（紫调）
   },
+  shadow: { card: "none" }, // 深色分层靠背景亮度差，不加投影
 };
 
-/** 经典浅色：换肤前的原始主题（浅底蓝字） */
+/** 经典浅色：干净/专业/白天通用（给老板看的主力主题）。
+ *  页面浅灰 #F6F7F9 托纯白卡片 + 柔和投影让卡片「浮」起来；主色经典蓝（可信） */
 const LIGHT_COLORS: ThemeColors = {
   brand: {
-    primary: "#2563eb",
+    primary: "#2563eb",           // 主按钮（经典蓝，专业可信）
+    primaryHover: "#1d4ed8",      // hover：加深
+    primaryPressed: "#1e40af",    // 按下：再加深
     primaryBg: "#eff6ff",
     primaryBgPressed: "#dbeafe",
-    primaryBorder: "#bfdbfe",
+    primaryBorder: "#c7d2e4",     // 次按钮描边（蓝灰，比纯灰柔和）
     primaryBorderPressed: "#93c5fd",
     // 浅色主题下 primary 在白底上对比度 5.3:1（≥ AA 4.5:1），无需单独声明
     linkText: "#2563eb",
-    onPrimaryBg: "#1e3a8a",       // 浅色主色底上的文字（深蓝，更清晰）
+    onPrimaryBg: "#1e3a8a",       // 浅色主色底上的文字（深蓝）
   },
   text: {
-    primary: "#1f2329",
-    secondary: "#646a73",
-    tertiary: "#374151",
+    primary: "#1f2329",           // 主文字
+    secondary: "#6b7280",         // 次文字
+    tertiary: "#374151",          // 中性文字
     inverse: "#fff",
   },
   status: {
-    success: "#16a34a",
+    success: "#16a34a",           // 成功徽章
     successStrong: "#15803d",
     successBg: "#f0fdf4",
     successBorder: "#bbf7d0",
@@ -113,43 +123,50 @@ const LIGHT_COLORS: ThemeColors = {
     caution: "#b45309", cautionBg: "#fffbeb",
   },
   border: {
-    default: "#d1d5db",
-    subtle: "#e5e7eb",
-    row: "#f3f4f6",
+    default: "#c7d2e4",   // 输入框/次按钮描边（蓝灰）
+    subtle: "#e5e7eb",    // 卡片边/分隔
+    row: "#f0f1f4",       // 表格行分隔
   },
   bg: {
-    page: "#f5f6f8",
-    surface: "#fff",
-    muted: "#f9fafb",
-    disabled: "#f3f4f6",
+    page: "#f6f7f9",      // 页面浅灰（托住白卡）
+    surface: "#ffffff",   // 卡片纯白
+    muted: "#f9fafb",     // 弱底色（附件预览，白上加极浅灰区分）
+    disabled: "#eef0f3",
   },
   muted: {
-    fg: "#94a3b8",
-    bg: "#9ca3af",
+    fg: "#9ca3af",        // 占位符
+    bg: "#e5e7eb",        // disabled 按钮背景
+  },
+  shadow: {
+    // 柔和双层投影：让白卡在浅灰页面上「浮」起来（主力主题的质感来源）
+    card: "0 1px 2px rgba(16,24,40,.04), 0 2px 8px rgba(16,24,40,.06)",
   },
 };
 
-/** 深空蓝：暗色 + 天青品牌色（第三主题） */
+/** 深空蓝：冷静/护眼/长时间（技术/工作室、夜间）。
+ *  底是深蓝黑 #0B1420 不是纯灰黑；卡片/输入框亮两档；主色亮青 */
 const OCEAN_COLORS: ThemeColors = {
   brand: {
-    primary: "#38bdf8",           // 天青主按钮
-    primaryBg: "#0c2733",
-    primaryBgPressed: "#123447",
-    primaryBorder: "#155e75",
-    primaryBorderPressed: "#0e7490",
-    // 深空蓝主题 primary 在 bg.page (~#0a121e) 上约 7:1，无需变更
-    linkText: "#38bdf8",
-    onPrimaryBg: "#e6edf5",       // 深色主色底上用浅色文字
+    primary: "#38bdf8",           // 主按钮（亮青）
+    primaryHover: "#5ccbfa",      // hover：亮一档
+    primaryPressed: "#2aa3d9",    // 按下：暗一档
+    primaryBg: "#0c2733",         // 青调染色暗底
+    primaryBgPressed: "#123a4d",  // chip 选中染色底
+    primaryBorder: "#2c4257",     // 次按钮描边（青调灰蓝）
+    primaryBorderPressed: "#38bdf8", // 激活态边框用主色
+    // 亮青在深蓝黑底上对比度充足；链接用更柔的天蓝
+    linkText: "#7dd3fc",
+    onPrimaryBg: "#e8f0f8",
   },
   text: {
-    primary: "#e6edf5",
-    secondary: "#8fa3b8",
-    tertiary: "#c0cede",
-    inverse: "#04141d",
+    primary: "#e8f0f8",           // 主文字（带蓝调近白）
+    secondary: "#93a5b8",         // 次文字（蓝灰）
+    tertiary: "#b9cbdc",          // 中性文字
+    inverse: "#04141d",           // 亮青底上用深蓝黑字（反色）
   },
   status: {
-    success: "#4ade80",
-    successStrong: "#86efac",
+    success: "#34d399",           // 成功徽章：亮绿
+    successStrong: "#6ee7b7",
     successBg: "#0d291f",
     successBorder: "#1f5c3c",
     danger: "#f87171",
@@ -159,20 +176,21 @@ const OCEAN_COLORS: ThemeColors = {
     caution: "#fbbf24", cautionBg: "#2b2310",
   },
   border: {
-    default: "#2e3d52",
-    subtle: "#1f2c3e",
-    row: "#182634",
+    default: "#2c4257",   // 输入框/次按钮描边（青调）
+    subtle: "#1e3043",    // 卡片边/分隔
+    row: "#16283a",       // 表格行分隔
   },
   bg: {
-    page: "#0a121e",
-    surface: "#111b29",
-    muted: "#16202e",
-    disabled: "#1b2637",
+    page: "#0b1420",      // 页面底（深蓝黑）
+    surface: "#111e2e",   // 卡片（亮一档）
+    muted: "#182839",     // 输入框/悬浮（再亮一档）
+    disabled: "#1e3145",
   },
   muted: {
-    fg: "#64748b",
-    bg: "#2b3a52",
+    fg: "#5c6e80",        // 占位符（蓝灰）
+    bg: "#2c4257",        // disabled 按钮背景
   },
+  shadow: { card: "none" }, // 深色分层靠背景亮度差
 };
 
 // ---------- 主题注册表 ----------

@@ -355,7 +355,7 @@ export default function ProjectPage() {
   const riskStyle = feasibility ? RISK[feasibility.risk_level] ?? RISK["中"] : null;
 
   const card = (title: string, node: React.ReactNode) => (
-    <section style={{ background: colors.bg.surface, border: borderStyle.card, borderRadius: radius.xl, padding: `${space.xxl}px ${space.xxl + 2}px`, marginBottom: space.xl }}>
+    <section style={{ background: colors.bg.surface, border: borderStyle.card, borderRadius: radius.xl, padding: `${space.xxl}px ${space.xxl + 2}px`, marginBottom: space.xl, boxShadow: colors.shadow.card }}>
       <h2 style={{ fontSize: font.lg, margin: `0 0 ${space.lg}px`, display: "flex", alignItems: "center", gap: space.sm }}>
         <span style={{ width: space.xxs, height: space.xl, background: colors.brand.primary, borderRadius: radius.xs, display: "inline-block" }} />
         {title}

@@ -177,6 +177,7 @@ export default function Home() {
           background: colors.bg.surface,
           border: hint ? `2px solid ${colors.status.danger}` : borderStyle.input,
           borderRadius: radius.lg,
+          boxShadow: colors.shadow.card,
           resize: "vertical",
           outline: "none",
           fontFamily: "inherit",

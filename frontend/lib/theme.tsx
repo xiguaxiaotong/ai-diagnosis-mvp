@@ -53,7 +53,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.body.style.color = colors.text.primary;
     // placeholder 色（layout 全局 ::placeholder 规则消费此变量）
     document.body.style.setProperty("--placeholder", colors.muted.fg);
-  }, [colors]);
+    // 按钮 hover/按下反馈（layout 全局 :hover/:active 规则消费）：
+    // 暗色系按下变暗、hover 提亮；浅色系都加深（对应各主题 primaryHover/Pressed 的方向）
+    const press = theme === "light" ? "0.82" : "0.85";
+    const hover = theme === "light" ? "0.92" : theme === "ocean" ? "1.16" : "1.1";
+    document.body.style.setProperty("--btn-press-bright", press);
+    document.body.style.setProperty("--btn-hover-bright", hover);
+  }, [colors, theme]);
 
   const setTheme = useCallback((t: ThemeName) => {
     setThemeState(t);

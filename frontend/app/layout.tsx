@@ -53,6 +53,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <style dangerouslySetInnerHTML={{ __html: `
           input, textarea, select { color: inherit; }
           input::placeholder, textarea::placeholder { color: var(--placeholder, #8a92a0); opacity: 1; }
+          /* 按钮态反馈：变量由 ThemeProvider 按主题写入
+             （暗色系 hover 提亮/按下加深，浅色系都加深；禁用键不参与） */
+          @media (hover: hover) {
+            button:not(:disabled):hover { filter: brightness(var(--btn-hover-bright, 1.05)); }
+          }
+          button:not(:disabled):active { filter: brightness(var(--btn-press-bright, 0.85)); }
         ` }} />
         <ThemeProvider>{children}</ThemeProvider>
       </body>
