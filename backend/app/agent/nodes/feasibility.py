@@ -19,14 +19,18 @@ logger = logging.getLogger(__name__)
 def feasibility_node(state: DiagnosisState) -> dict:
     """基于 requirements/plan/budget 出可行性评估，返回 {"feasibility": ...}。"""
     requirements, plan, budget = state.get("requirements"), state.get("plan"), state.get("budget")
-    if not plan or not budget:
-        return {"error": "可行性评估失败：缺少方案或预算信息"}
+    if not plan:
+        return {"error": "可行性评估失败：缺少方案信息"}
 
     prompt = render(
         "feasibility",
         requirements_json=json.dumps(requirements or {}, ensure_ascii=False, indent=2),
         plan_json=json.dumps(plan, ensure_ascii=False, indent=2),
-        budget_json=json.dumps(budget, ensure_ascii=False, indent=2),
+        # 免费思路版无预算：显式告知评估节点，避免编造金额
+        budget_json=(
+            json.dumps(budget, ensure_ascii=False, indent=2)
+            if budget else "无（免费思路版方案，不涉及开发报价，预算合理性一笔带过即可）"
+        ),
     )
 
     # 评估是判断型任务：低温度保证结论稳定

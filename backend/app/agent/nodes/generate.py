@@ -40,9 +40,29 @@ def generate_node(state: DiagnosisState) -> dict:
         cases_section = "\n## 相似历史案例（真实项目复盘，供参考）\n\n" + "\n".join(lines) + "\n"
         logger.info("[generate] 注入 %d 个相似案例", len(cases))
 
+    # 预算档位硬约束（P8）：预算一旦提及全程锁定，方案复杂度不得越档
+    tier = state.get("budget_tier")
+    budget_section = (
+        f"\n## 预算档位约束（硬性边界，必须遵守）\n\n"
+        f"用户原话：「{tier['mentioned']}」，档位：{tier['label']}\n"
+        f"{tier['guidance']}\n"
+        if tier else ""
+    )
+
+    # A 组痛点（用户勾选确认过）：方案要正面回应每条痛点
+    pain_points = state.get("confirmed_pain_points") or []
+    pain_section = (
+        "\n## 用户确认的痛点（方案必须逐条回应）\n\n"
+        + "\n".join(f"- {p}" for p in pain_points)
+        + "\n在 business_summary 与模块 description 中说明对应模块解决了哪条痛点。\n"
+        if pain_points else ""
+    )
+
     prompt = render(
         "generate",
         requirements_json=json.dumps(requirements, ensure_ascii=False, indent=2),
+        budget_constraint=budget_section,
+        pain_points_section=pain_section,
         revision_feedback=feedback_section,
         similar_cases=cases_section,
     )

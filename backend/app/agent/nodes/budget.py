@@ -28,6 +28,15 @@ UNIT_PRICE = {
     "P2": (3_000, 5_000),
 }
 
+# P8 demo 档单价表（元）——自用 Demo 是简化实现口径（开源组件/低代码/AI 辅助搭建），
+# 不是外包交付价。旧逻辑 demo 档沿用外包价 → 3 千预算的方案永远「最低 1.3 万」，
+# 与档位约束自相矛盾（这是「忽略预算持续输出复杂方案」在计价层的残留）。
+DEMO_UNIT_PRICE = {
+    "P0": (1_500, 3_000),
+    "P1": (1_000, 2_000),
+    "P2": (500, 1_000),
+}
+
 # 对接系统集成：每命中一类关键词的加价（元）
 INTEGRATION_KEYWORDS = {
     "收银/POS 对接": ("收银", "pos", "收款机"),
@@ -51,12 +60,17 @@ URGENT_RATE = (0.10, 0.20)
 # 最低报价兜底：低于这个数不现实
 MIN_TOTAL = 20_000
 
+# 成本敏感（用户表达「免费试用/便宜点/不想多花钱」）：最小可行方案口径，
+# 最低报价兜底放宽——还按 2 万兜底会把「想先免费试试」的用户直接吓跑
+COST_SENSITIVE_KEYWORDS = ("预算敏感", "低成本", "免费", "试用", "便宜", "省钱", "不想投入")
+COST_SENSITIVE_MIN_TOTAL = 5_000
+
 
 def _hit_keywords(text: str, keywords: tuple[str, ...]) -> bool:
     return any(k in text for k in keywords)
 
 
-_BUDGET_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(万|w|W|k|K)?")
+_BUDGET_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(万|w|W|k|K|千|块钱|元)?")
 
 
 def parse_budget(mentioned) -> int | None:
@@ -76,8 +90,9 @@ def parse_budget(mentioned) -> int | None:
         v = float(num)
         if unit in ("万", "w", "W"):
             v *= 10_000
-        elif unit in ("k", "K"):
-            v *= 1_000
+        elif unit in ("k", "K", "千") or unit in ("块钱", "元"):
+            # 「3千」「3000块钱」「3000元」同一口径；万级写法优先（max 取大值兜底歧义）
+            v *= 1_000 if unit == "千" else 1
         values.append(v)
     result = int(max(values))
     if result < 100 or result > 100_000_000:
@@ -85,8 +100,11 @@ def parse_budget(mentioned) -> int | None:
     return result
 
 
-def estimate_budget(plan: dict, requirements: dict | None) -> dict:
-    """规则引擎入口：SolutionPlan dict → 预算 dict（可独立调用，便于测试）。"""
+def estimate_budget(plan: dict, requirements: dict | None, tier: dict | None = None) -> dict:
+    """规则引擎入口：SolutionPlan dict → 预算 dict（可独立调用，便于测试）。
+
+    tier：understand 节点写入的预算档位（P8），决定兜底价口径与 budget_match 措辞。
+    """
     modules = plan.get("core_business_modules", [])
     stack_text = " ".join(
         f"{t.get('layer', '')}{t.get('choice', '')}" for t in plan.get("tech_stack", [])
@@ -102,10 +120,12 @@ def estimate_budget(plan: dict, requirements: dict | None) -> dict:
     line_items: list[BudgetLineItem] = []
     assumptions: list[str] = []
 
-    # 1. 模块计价：优先级 × 数量
+    # 1. 模块计价：优先级 × 数量（P8：demo 档用自用口径低价表，外包价只用于 mid/pro）
+    tier_name = (tier or {}).get("tier") if tier else None
+    price_table = DEMO_UNIT_PRICE if tier_name == "demo" else UNIT_PRICE
     total_min = total_max = 0
     for m in modules:
-        lo, hi = UNIT_PRICE.get(m.get("priority", "P1"), UNIT_PRICE["P1"])
+        lo, hi = price_table.get(m.get("priority", "P1"), price_table["P1"])
         line_items.append(BudgetLineItem(
             item=f"{m.get('name', '未命名模块')}（{m.get('priority', 'P1')} 模块）",
             basis=f"{m.get('priority', 'P1')} 模块单价 {lo}-{hi} 元",
@@ -151,15 +171,36 @@ def estimate_budget(plan: dict, requirements: dict | None) -> dict:
         assumptions.append("用户提及工期较紧，按加急上浮测算")
 
     # 5. 兜底与取整（千元）
-    total_min = max(total_min, MIN_TOTAL)
+    # 成本敏感判定只看 mentioned_budget 字段（用户预算口径），
+    # 不能扫全部需求文本——core_features 里的「免费试用 7 天」是产品功能，不是预算态度
+    mentioned_raw = str((requirements or {}).get("mentioned_budget") or "")
+    cost_sensitive = _hit_keywords(mentioned_raw.lower(), COST_SENSITIVE_KEYWORDS)
+
+    # P8 预算档位兜底：档位决定「最低可行成本」口径——
+    # demo（≤5千/自用）按最小 Demo 价兜底，mid 按 8 千兜底，pro/未提按 2 万兜底。
+    # 旧逻辑一律 2 万兜底，把「预算 8 千」的用户直接判「低于最低可行成本」，
+    # 这是「忽略预算持续输出复杂方案」的直接原因之一。
+    tier_name = (tier or {}).get("tier") if tier else None
+    if tier_name == "demo":
+        floor = 3_000  # 自用 Demo 口径（模块单价已按 demo 表压低）
+    elif tier_name == "mid":
+        floor = 8_000
+    else:
+        floor = COST_SENSITIVE_MIN_TOTAL if cost_sensitive else MIN_TOTAL
+    total_min = max(total_min, floor)
     total_max = max(total_max, total_min + 5_000)  # 区间至少拉开 5k
+    if cost_sensitive or tier_name == "demo":
+        assumptions.append(
+            "用户预算敏感（希望低成本），按最小可行方案测算："
+            "建议先上 P0 核心功能验证价值，再分期扩展"
+        )
 
     # 5.5 用户明确预算硬约束：报价必须以用户口径为准，不得自说自话
-    #   - 预算可信（≥ 最低可行成本）：区间收敛进预算，上限贴预算（预算驱动范围）
-    #   - 预算过低（< 最低可行成本）：区间保持现实成本，budget_match 明确警示
+    #   - 预算可信（≥ 档位最低可行成本）：区间收敛进预算，上限贴预算（预算驱动范围）
+    #   - 预算过低（< 档位最低可行成本）：区间保持现实成本，budget_match 明确警示
     user_budget = parse_budget((requirements or {}).get("mentioned_budget"))
     if user_budget:
-        if total_max > user_budget >= MIN_TOTAL:
+        if total_max > user_budget >= floor:
             # 超出预算：收敛到预算内，并提示裁剪需求
             total_min = min(total_min, int(user_budget * 0.6))
             total_max = user_budget
@@ -179,15 +220,16 @@ def estimate_budget(plan: dict, requirements: dict | None) -> dict:
         assumptions.append(f"需要对接 {len(hit_names)} 类第三方系统，按类别加价")
     assumptions.append("按 MVP 规模测算；超出 MVP 范围的需求（大数据量、高并发）需重新评估")
 
-    # 6. 与用户提及预算对比
+    # 6. 与用户提及预算对比（P8：档位决定口径，不再一律按 2 万最低成本说话）
     mentioned = (requirements or {}).get("mentioned_budget")
+    tier_label = (tier or {}).get("label") if tier else None
     if user_budget:
         if total_max <= user_budget and total_max > user_budget * 0.3:
             budget_match = f"用户明确预算「{mentioned}」，测算区间 {total_min}-{total_max} 元，在预算内"
-        elif user_budget < MIN_TOTAL:
+        elif user_budget < floor:
             budget_match = (
-                f"用户预算「{mentioned}」低于最低可行成本（{MIN_TOTAL} 元），"
-                "该金额无法交付完整方案，需向用户说明并协商缩减需求范围"
+                f"用户预算「{mentioned}」低于该规模方案的最低可行成本（{floor} 元），"
+                "需向用户说明并协商进一步缩减需求范围"
             )
         else:
             budget_match = (
@@ -195,26 +237,50 @@ def estimate_budget(plan: dict, requirements: dict | None) -> dict:
                 "（预算较充足，可覆盖更多 P1/P2 功能或预留迭代资金）"
             )
     elif mentioned:
-        budget_match = f"用户提及预算「{mentioned}」但无法解析具体金额，测算区间为 {total_min}-{total_max} 元，需与用户确认"
+        if cost_sensitive:
+            budget_match = (
+                f"用户预算态度：「{mentioned}」，未给具体金额。"
+                f"已按最小可行方案测算，区间 {total_min}-{total_max} 元"
+            )
+        else:
+            budget_match = f"用户提及预算「{mentioned}」但无法解析具体金额，测算区间为 {total_min}-{total_max} 元，需与用户确认"
     else:
         budget_match = "用户未提及预算"
 
-    return BudgetEstimate(
+    # 档位信息随预算结果下发（前端徽章 / 方案页标注用）
+    if tier_label:
+        budget_match = f"【{tier_label}】{budget_match}"
+
+    result = BudgetEstimate(
         total_min=total_min,
         total_max=total_max,
         line_items=line_items,
         assumptions=assumptions,
         budget_match=budget_match,
     ).model_dump()
+    if tier:
+        result["tier"] = {
+            "tier": tier.get("tier"),
+            "label": tier.get("label"),
+            "mentioned": tier.get("mentioned"),
+            "recap": tier.get("recap"),
+        }
+    return result
 
 
 def budget_node(state: DiagnosisState) -> dict:
-    """预算测算节点：读 plan（+requirements），写 budget。"""
+    """预算测算节点：读 plan（+requirements+budget_tier），写 budget。"""
     plan = state.get("plan")
     if not plan:
         return {"error": "预算测算失败：缺少方案信息"}
 
-    budget = estimate_budget(plan, state.get("requirements"))
+    # 免费试试（free 档）：不产生任何开发报价（产品规则：主方案不含预算）
+    tier = state.get("budget_tier") or {}
+    if tier.get("tier") == "free":
+        logger.info("[budget] free 档 → 跳过报价测算")
+        return {"budget": None}
+
+    budget = estimate_budget(plan, state.get("requirements"), tier=tier)
     logger.info(
         "[budget] range=%d-%d items=%d",
         budget["total_min"], budget["total_max"], len(budget["line_items"]),

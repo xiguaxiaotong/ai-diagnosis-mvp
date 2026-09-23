@@ -7,6 +7,30 @@ Week2 先实现 ProjectRequirements，方案/预算模型后续节点用到时�
 from pydantic import BaseModel, Field
 
 
+class ExampleOption(BaseModel):
+    """点选选项：label 是答案，note 是大白话说明（降低理解门槛）。"""
+
+    label: str = Field(description="选项答案本身，≤8 字，口语化")
+    note: str = Field(
+        default="",
+        description="一句大白话说明（≤20 字），讲清选它意味着什么",
+    )
+
+
+class QuestionDetail(BaseModel):
+    """追问问题 + 示例选项（A 组交互升级）。
+
+    examples 是贴合当前项目场景的典型答案，前端渲染成可点选 chip，
+    同一问题组内单选（互斥），跨问题组互不干扰。
+    """
+
+    question: str = Field(description="问题文本，与 missing_info 中的问题对应")
+    examples: list[ExampleOption] = Field(
+        default_factory=list,
+        description="2-3 个互斥选项（label + 大白话 note）",
+    )
+
+
 class ProjectRequirements(BaseModel):
     """需求理解节点的结构化输出。
 
@@ -31,6 +55,14 @@ class ProjectRequirements(BaseModel):
     missing_info: list[str] = Field(
         description="影响方案与报价的关键缺失信息，最多 3 条；信息齐全则为空列表"
     )
+    question_details: list[QuestionDetail] = Field(
+        default_factory=list,
+        description="与 missing_info 一一对应的问题详情（含示例选项）",
+    )
+    pain_points: list[str] = Field(
+        default_factory=list,
+        description="从用户描述中识别的痛点（大白话，2-4 条）",
+    )
     summary: str = Field(description="用一段话（80 字内）复述需求，向用户确认理解")
 
 
@@ -38,7 +70,11 @@ class FunctionalModule(BaseModel):
     """业务功能模块（方案的业务部分）。"""
 
     name: str = Field(description="模块名称，如：扫码点单")
-    description: str = Field(description="功能描述，一句话说清楚做什么")
+    description: str = Field(description="功能描述，一句话说清楚做什么、解决什么麻烦")
+    example: str = Field(
+        default="",
+        description="具体使用场景举例（10-30 字），客户一看就知道怎么用",
+    )
     priority: str = Field(description="优先级：P0=核心 / P1=重要 / P2=可选")
 
 
@@ -50,6 +86,15 @@ class TechChoice(BaseModel):
     reason: str = Field(description="选择理由，一句话，需考虑成本与维护难度")
 
 
+class GlossaryItem(BaseModel):
+    """术语小白卡条目（B 组排版）：方案里出现的技术词 → 大白话解释。"""
+
+    term: str = Field(description="方案中出现的技术术语，如：API、云服务器")
+    explanation: str = Field(
+        description="一句大白话解释（20-40 字），用生活化类比，不用别的术语"
+    )
+
+
 class SolutionPlan(BaseModel):
     """方案生成节点的结构化输出：业务方案 + 技术方案。
 
@@ -58,6 +103,10 @@ class SolutionPlan(BaseModel):
     """
 
     project_name: str = Field(description="项目名称，与需求理解结果保持一致或微调")
+    one_liner: str = Field(
+        default="",
+        description="一句话大白话总结（30字内）：这套东西帮你做什么，如「帮你把每天的账自动记好，手机一看就知道」",
+    )
     business_summary: str = Field(description="业务方案概述，100 字内，讲清楚系统帮客户解决什么问题")
     core_business_modules: list[FunctionalModule] = Field(
         description="业务功能模块，3-8 个，覆盖需求中的核心功能"
@@ -65,6 +114,10 @@ class SolutionPlan(BaseModel):
     tech_architecture: str = Field(description="技术架构概述，100 字内")
     tech_stack: list[TechChoice] = Field(
         description="分层技术选型，4-6 层（前端/后端/数据库/部署等）"
+    )
+    glossary: list[GlossaryItem] = Field(
+        default_factory=list,
+        description="本方案中出现的技术术语大白话解释，3-6 条；没有术语则为空",
     )
     implementation_phases: list[str] = Field(
         description="分期实施建议，2-3 期，每期一句话说明交付什么"
