@@ -48,9 +48,10 @@ def main() -> None:
     deadline = time.time() + 900
     while time.time() < deadline:
         time.sleep(20)
+        # 注意：f-string 里 {{}} 会被折叠，模板必须四重花括号转义
         code, out = run(
-            "docker compose -f "
-            f"{REMOTE_DIR}/docker-compose.yml ps --format '{{.Name}} {{.State}}' 2>/dev/null"
+            f"docker compose -f {REMOTE_DIR}/docker-compose.yml"
+            " ps --format '{{{{.Name}}}} {{{{.State}}}}' 2>/dev/null"
             " | sort | tr '\\n' ' '"
         )
         code2, tail = run("tail -c 400 /tmp/diag-build.log 2>/dev/null")
