@@ -1,21 +1,43 @@
+# MVP 后端依赖（精简版，针对 2C4G 服务器优化）
+#
+# 精简策略：
+#   1. chromadb 锁 0.4.x —— 1.x 拖 kubernetes / opentelemetry / grpcio / bcrypt 等
+#      一堆用不到的 deps，2C4G 一起 pip 会 OOM；0.4.x 仅 ~30MB 无垃圾 deps
+#   2. 避免在同一条 RUN 里装 torch + 大件 —— 拆成两条 RUN，让 pip install 在
+#      4GB 内存下分批编译（每批 < 150MB），不要一次全装
+#   3. 严格只列 MVP 真实使用的包，禁止安装 langchain 全家桶 / langchain-openai /
+#      jupyter / 测试库等
+
+# ===== 第一批：Web 框架 + 数据层（轻量，几乎不耗内存） =====
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
-python-multipart>=0.0.9    # multipart 表单（案例上传接口）
-
-# P5 模型接入
-openai>=1.40.0            # DeepSeek 走 OpenAI 兼容协议
-sentence-transformers>=3.0.0  # bge-small 本地 Embedding（会自动安装 torch/tokens 等依赖）
+python-multipart>=0.0.9        # multipart 表单（案例上传接口）
+sqlalchemy>=2.0.0
+pydantic>=2.0.0
 python-dotenv>=1.0.0
 
-# P10 数据层
-sqlalchemy>=2.0.0
-
-# P1 诊断智能体
+# ===== 第二批：Agent 框架（轻量） =====
 langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=2.0.0  # SqliteSaver：checkpoint 落盘
 
-# P2 案例检索
-chromadb>=1.0.0           # 向量库（持久化）
+# ===== 第三批：模型接入（轻量） =====
+openai>=1.40.0                 # DeepSeek 走 OpenAI 兼容协议
+
+# ===== 第四批：文档解析（中等，单一装可） =====
+pypdf>=5.0.0                   # PDF 解析
+python-docx>=1.1.0             # Word 解析
+reportlab>=5.0                 # 服务端方案 PDF 导出
+
+# ===== 第五批：Embedding + 向量库（重，分两步装避免同时吃内存） =====
+# torch 在 Dockerfile 里独立 RUN 装（CPU wheel），避开默认 CUDA 2GB+
+# sentence-transformers 拖 scikit-learn + scipy + transformers + tokenizers
+sentence-transformers>=3.0.0
+scikit-learn>=1.3.0            # sentence-transformers 显式依赖
+numpy>=1.24.0                  # 锁住版本，避免被 scikit-learn 拖到旧版
+# ===== 向量库：自实现 numpy + JSON 持久化（Chroma 1.x 拖 kubernetes/otel 几百 MB，2C4G OOM）
+# chromadb 已从代码移除（见 app/retrieval/vector_store.py），500 条以内点乘全量毫秒级
 langchain-text-splitters>=0.3.0  # 递归文本切分
-pypdf>=5.0.0              # PDF 解析
-python-docx>=1.1.0        # Word 解析
-rapidocr-onnxruntime>=1.3.0  # 图片文字识别（本地 onnx，无需外部 API）
+
+# ===== 第六批：OCR（重，单一装；onnxruntime 同时被 chromadb 复用） =====
+rapidocr-onnxruntime>=1.3.0    # 图片 OCR
+opencv-python-headless>=4.8.0   # rapidocr 依赖（headless 避免 GUI 依赖）
