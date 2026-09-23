@@ -37,7 +37,7 @@ export function useTheme(): ThemeContextValue {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeName>("dark");
+  const [theme, setThemeState] = useState<ThemeName>("light");
   const [open, setOpen] = useState(false);
   const colors = THEMES[theme].colors;
 

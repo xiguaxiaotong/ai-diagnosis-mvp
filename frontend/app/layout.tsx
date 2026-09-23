@@ -26,7 +26,7 @@ const THEME_BOOT = `try{var t=localStorage.getItem("theme");var m=${JSON.stringi
   Object.fromEntries(
     Object.entries(THEMES).map(([k, v]) => [k, [v.colors.bg.page, v.colors.text.primary]]),
   ),
-)};var p=m[t]||m.dark;document.body.style.background=p[0];document.body.style.color=p[1];}catch(e){}`;
+)};var p=m[t]||m.light;document.body.style.background=p[0];document.body.style.color=p[1];}catch(e){}`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -36,9 +36,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           margin: 0,
           fontFamily:
             "-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif",
-          // SSR 默认值（暗夜紫）；真实主题由首帧脚本 + ThemeProvider 接管
-          background: THEMES.dark.colors.bg.page,
-          color: THEMES.dark.colors.text.primary,
+          // SSR 默认值（经典浅色）；真实主题由首帧脚本 + ThemeProvider 接管
+          background: THEMES.light.colors.bg.page,
+          color: THEMES.light.colors.text.primary,
           WebkitTapHighlightColor: "transparent",
           WebkitFontSmoothing: "antialiased",
           // 兜底（iOS 老版本不完全尊重 viewport 缩放禁用）：
