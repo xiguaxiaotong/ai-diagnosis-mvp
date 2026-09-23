@@ -1,6 +1,12 @@
-__pycache__
+# 依赖在镜像里 pip install，不复制本地 venv
+.venv/
+venv/
+__pycache__/
 *.pyc
-data/sqlite.db
-data/chroma/*
-data/cases/*
-.env
+# 本地数据/日志不进镜像（生产挂载 volume）
+data/
+logs/
+*.log
+# 开发脚本不进镜像
+start-backend.bat
+_*check*.py

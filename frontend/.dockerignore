@@ -1,3 +1,6 @@
-node_modules
-.next
-.env*
+# 本机构建好的产物必须 COPY 进镜像（不能排除！）
+# node_modules / 调试用 dev 配置不进镜像
+node_modules/
+# 本地环境配置不进镜像
+.env.local
+.env*.local
