@@ -27,15 +27,13 @@ def get_project(db: Session, project_id: int) -> Project | None:
     return db.get(Project, project_id)
 
 
-def list_projects(db: Session, limit: int = 50, offset: int = 0) -> list[Project]:
-    """按创建时间倒序列出项目。"""
-    return (
-        db.query(Project)
-        .order_by(Project.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+def list_projects(db: Session, limit: int = 50, offset: int = 0,
+                  user_id: int | None = None) -> list[Project]:
+    """按创建时间倒序列出项目（Day4：传 user_id 则只看该用户的）。"""
+    q = db.query(Project)
+    if user_id is not None:
+        q = q.filter(Project.user_id == user_id)
+    return q.order_by(Project.created_at.desc()).offset(offset).limit(limit).all()
 
 
 def update_project(db: Session, project_id: int, **fields) -> Project | None:

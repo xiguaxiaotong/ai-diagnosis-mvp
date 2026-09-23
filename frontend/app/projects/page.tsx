@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, Project } from "../../lib/api";
+import { useRequireAuth } from "../../lib/auth";
+import { useTheme } from "../../lib/theme";
+import { font, radius, space, touch } from "../../lib/tokens";
 
 const STATUS_TEXT: Record<string, string> = {
   diagnosing: "诊断中",
@@ -13,6 +16,8 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 export default function ProjectsPage() {
+  const { colors, borderStyle } = useTheme();
+  useRequireAuth(); // Day4：未登录 → /login
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,33 +47,38 @@ export default function ProjectsPage() {
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "60px auto", padding: "0 16px" }}>
+    <main style={{ maxWidth: 720, margin: `${space.pageTop}px auto`, padding: `0 ${space.xl}px` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>历史项目</h1>
         <Link
           href="/"
           style={{
-            padding: "8px 16px",
-            background: "#2563eb",
-            color: "#fff",
-            borderRadius: 6,
+            padding: `${space.sm}px ${space.xl}px`,
+            background: colors.brand.primary,
+            color: colors.text.inverse,
+            borderRadius: radius.base,
             textDecoration: "none",
-            fontSize: 14,
+            fontSize: font.base,
           }}
         >
           + 新建诊断
         </Link>
       </div>
 
+      {/* 账号隔离提示（#5）：让用户明确知道数据跟着账号走 */}
+      <p style={{ margin: `${space.xs}px 0 0`, fontSize: font.xs, color: colors.text.tertiary }}>
+        所有项目属于当前账号，切换账号不会看到别的账号项目
+      </p>
+
       {error && (
-        <p style={{ color: "#dc2626", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <p style={{ color: colors.status.danger, display: "flex", alignItems: "center", gap: space.md, flexWrap: "wrap" }}>
           请求失败：{error}
           <button
             onClick={load}
             style={{
-              padding: "8px 16px", minHeight: 36, fontSize: 13,
-              background: "#fff", color: "#2563eb",
-              border: "1px solid #2563eb", borderRadius: 6, cursor: "pointer",
+              padding: `${space.sm}px ${space.xl}px`, minHeight: touch.small, fontSize: font.sm,
+              background: colors.bg.surface, color: colors.brand.linkText,
+              border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.base, cursor: "pointer",
             }}
           >
             重试
@@ -76,10 +86,10 @@ export default function ProjectsPage() {
         </p>
       )}
 
-      {projects === null && !error && <p style={{ color: "#646a73" }}>加载中…</p>}
+      {projects === null && !error && <p style={{ color: colors.text.secondary }}>加载中…</p>}
 
       {projects?.length === 0 && (
-        <p style={{ color: "#646a73" }}>还没有项目，点右上角新建一个试试</p>
+        <p style={{ color: colors.text.secondary }}>还没有项目，点右上角新建一个试试</p>
       )}
 
       <ul style={{ listStyle: "none", padding: 0 }}>
@@ -87,26 +97,28 @@ export default function ProjectsPage() {
           <li
             key={p.id}
             style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-              padding: "12px 16px",
-              marginBottom: 12,
+              border: borderStyle.card,
+              borderRadius: radius.md,
+              padding: `${space.base}px ${space.xl}px`,
+              marginBottom: space.base,
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
             }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
+              {/* 按状态直达：诊断中→对话页（可继续点选项卡），已有方案→方案页。
+                  不再经过「方案还没生成」中间页 */}
               <Link
-                href={`/project/${p.id}`}
+                href={p.status === "diagnosing" ? `/chat/${p.id}` : `/project/${p.id}`}
                 style={{
-                  fontWeight: 600, color: "#111", textDecoration: "none",
-                  display: "inline-block", padding: "4px 0",
+                  fontWeight: 600, color: colors.text.primary, textDecoration: "none",
+                  display: "inline-block", padding: `${space.xxs}px 0`,
                 }}
               >
                 {p.title}
               </Link>
-              <div style={{ fontSize: 13, color: "#646a73", marginTop: 4 }}>
+              <div style={{ fontSize: font.sm, color: colors.text.secondary, marginTop: space.xxs }}>
                 状态：{STATUS_TEXT[p.status] ?? p.status}
                 {p.budget_min != null && p.budget_max != null && (
                   <>
@@ -130,14 +142,14 @@ export default function ProjectsPage() {
               onClick={() => remove(p.id, p.title)}
               style={{
                 flexShrink: 0,
-                minHeight: 40,
-                marginLeft: 12,
-                padding: "6px 14px",
-                fontSize: 13,
-                background: "#fff",
-                color: "#dc2626",
-                border: "1px solid #dc2626",
-                borderRadius: 6,
+                minHeight: touch.base,
+                marginLeft: space.base,
+                padding: `${space.xs}px ${space.lg}px`,
+                fontSize: font.sm,
+                background: colors.bg.surface,
+                color: colors.status.danger,
+                border: `1px solid ${colors.status.danger}`,
+                borderRadius: radius.base,
                 cursor: "pointer",
               }}
             >
@@ -147,7 +159,7 @@ export default function ProjectsPage() {
         ))}
       </ul>
 
-      <Link href="/" style={{ color: "#2563eb" }}>
+      <Link href="/" style={{ color: colors.brand.linkText }}>
         ← 返回首页
       </Link>
     </main>

@@ -36,11 +36,32 @@ class Base(DeclarativeBase):
 
 
 def init_db() -> None:
-    """建表（已存在则跳过）。导入 models 以确保表定义已注册。"""
+    """建表（已存在则跳过）。导入 models 以确保表定义已注册。
+
+    SQLite 的 CREATE TABLE 不会给已存在的表加列，新增列在这里做轻量迁移
+    （PRAGMA 查列 → 缺则 ALTER TABLE ADD COLUMN）。
+    """
     from app.db import models  # noqa: F401
 
     SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+
+    # 轻量列迁移：projects.req_profile（结构化实体记忆）
+    with engine.connect() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(projects)")}
+        if "req_profile" not in cols:
+            conn.exec_driver_sql("ALTER TABLE projects ADD COLUMN req_profile TEXT")
+            conn.commit()
+
+    # Day4 账户系统迁移：users.username / users.password_hash
+    with engine.connect() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(users)")}
+        if "username" not in cols:
+            conn.exec_driver_sql("ALTER TABLE users ADD COLUMN username VARCHAR(64)")
+            conn.commit()
+        if "password_hash" not in cols:
+            conn.exec_driver_sql("ALTER TABLE users ADD COLUMN password_hash VARCHAR(256)")
+            conn.commit()
 
 
 def get_db():

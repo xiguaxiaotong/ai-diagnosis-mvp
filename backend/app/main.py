@@ -22,10 +22,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api.auth import get_current_user
 from app.api.cases import router as cases_router
 from app.api.diagnosis import router as diagnosis_router
 from app.config import FRONTEND_ORIGIN
 from app.db.database import get_db, init_db
+from app.db.models import Project
 from app.infra.callbacks import setup_logging
 from app.services import project_service
 
@@ -52,6 +54,9 @@ app.add_middleware(
 app.include_router(diagnosis_router)
 # P2 案例 API（上传/列表/详情/删除）
 app.include_router(cases_router)
+# Day4 账户系统（注册/登录/会话）
+from app.api.auth import router as auth_router  # noqa: E402
+app.include_router(auth_router)
 
 
 @app.get("/")
@@ -94,21 +99,36 @@ def _project_to_dict(p) -> dict[str, Any]:
 
 
 @app.get("/api/projects")
-def list_projects(limit: int = 50, db: Session = Depends(get_db)):
-    projects = project_service.list_projects(db, limit=limit)
+def list_projects(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """项目列表：只看自己的（Day4 账户隔离）。"""
+    projects = project_service.list_projects(db, limit=limit, user_id=user.id)
     return {"items": [_project_to_dict(p) for p in projects]}
 
 
 @app.post("/api/projects", status_code=201)
-def create_project(body: ProjectCreate, db: Session = Depends(get_db)):
-    p = project_service.create_project(db, title=body.title, raw_idea=body.raw_idea)
+def create_project(
+    body: ProjectCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    p = project_service.create_project(
+        db, title=body.title, raw_idea=body.raw_idea, user_id=user.id
+    )
     return _project_to_dict(p)
 
 
 @app.get("/api/projects/{project_id}")
-def get_project(project_id: int, db: Session = Depends(get_db)):
+def get_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     p = project_service.get_project(db, project_id)
-    if p is None:
+    if p is None or p.user_id != user.id:
         raise HTTPException(status_code=404, detail="项目不存在")
     data = _project_to_dict(p)
     data["messages"] = [
@@ -119,15 +139,27 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/projects/{project_id}")
-def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(get_db)):
-    p = project_service.update_project(db, project_id, **body.model_dump(exclude_none=True))
-    if p is None:
+def update_project(
+    project_id: int,
+    body: ProjectUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    p = project_service.get_project(db, project_id)
+    if p is None or p.user_id != user.id:
         raise HTTPException(status_code=404, detail="项目不存在")
+    p = project_service.update_project(db, project_id, **body.model_dump(exclude_none=True))
     return _project_to_dict(p)
 
 
 @app.delete("/api/projects/{project_id}")
-def delete_project(project_id: int, db: Session = Depends(get_db)):
-    if not project_service.delete_project(db, project_id):
+def delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    p = project_service.get_project(db, project_id)
+    if p is None or p.user_id != user.id:
         raise HTTPException(status_code=404, detail="项目不存在")
+    project_service.delete_project(db, project_id)
     return {"deleted": True}

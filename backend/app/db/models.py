@@ -19,11 +19,32 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 登录名（Day4 账户系统）：旧「匿名用户」行此列为 NULL，不参与登录
+    username: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    # pbkdf2_sha256$迭代$salt$hash（标准库哈希，无新依赖）
+    password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     name: Mapped[str] = mapped_column(String(64), default="匿名用户")
     phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     projects: Mapped[list["Project"]] = relationship(back_populates="user")
+
+
+class AuthSession(Base):
+    """登录会话（Day4）：token → user。存 DB 保证重启不失效（Day3 验收）。
+
+    MVP 不上 JWT 库：随机 token + DB 查表足够，过期 30 天，logout 删行。
+    """
+    __tablename__ = "auth_sessions"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+    user: Mapped["User"] = relationship()
 
 
 class Project(Base):
@@ -52,6 +73,10 @@ class Project(Base):
     plan: Mapped[str | None] = mapped_column(Text, nullable=True)  # 方案 JSON
     budget_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     budget_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # 结构化实体记忆（每轮 understand 节点后写入的 requirements JSON）：
+    # 已确认字段的持久副本，独立于图 checkpoint，供「修改需求」等程序直接读写
+    req_profile: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
