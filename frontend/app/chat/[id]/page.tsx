@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, API_BASE } from "../../../lib/api";
+import { getToken, handle401, useRequireAuth } from "../../../lib/auth";
+import { useTheme } from "../../../lib/theme";
+import { useSwipeBack } from "../../../lib/useSwipeBack";
+import { font, lineHeight, radius, space, touch } from "../../../lib/tokens";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -13,12 +17,33 @@ function fileTagOf(content: string): string | null {
   return m ? `📎 ${m[1]}（AI 已读取 ${m[2]} 字）` : null;
 }
 
+/** 追问消息（ask 节点固定格式：引导句 + 编号问题列表）→ 旁白小框渲染 */
+function clarifyBubbleOf(content: string): { lead: string; items: string[] } | null {
+  const m = content.match(/^(为了给您[^：\n]*：)\s*\n((?:\s*\d+\..+\n?)+)\s*$/);
+  if (!m) return null;
+  const items = m[2]
+    .split("\n")
+    .map((s) => s.replace(/^\s*\d+\.\s*/, "").trim())
+    .filter(Boolean);
+  return items.length ? { lead: m[1], items } : null;
+}
+
+interface ReqProfile {
+  requirements?: { missing_info?: string[]; question_details?: { question: string; examples: { label: string; note: string }[] }[] };
+  clarify_questions?: string[];
+  question_details?: { question: string; examples: { label: string; note: string }[] }[];
+  pain_points?: string[];
+  confirmed_pain_points?: string[];
+  budget_tier?: { tier: string; label: string; recap: string } | null;
+}
+
 interface ProjectDetail {
   id: number;
   title: string;
   raw_idea: string | null;
   status: string;
   solution: Record<string, unknown> | null;
+  req_profile?: ReqProfile | null;
   messages: { id: number; role: string; content: string }[];
 }
 
@@ -34,6 +59,8 @@ export default function ChatPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const projectId = Number(params.id);
+  const { colors, borderStyle } = useTheme();
+  useRequireAuth(); // Day4：未登录 → /login
 
   const [title, setTitle] = useState("诊断对话");
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -45,15 +72,33 @@ export default function ChatPage() {
   const [activeQuestion, setActiveQuestion] = useState<string | null>(null); // 当前正在回答的追问
   const [file, setFile] = useState<File | null>(null); // 待上传附件
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [reviseMode, setReviseMode] = useState(false);
   const [confirmBanner, setConfirmBanner] = useState(false);
   const [stage, setStage] = useState<string | null>(null); // 后端图执行阶段提示
   const [waitSec, setWaitSec] = useState(0); // 已等待秒数
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // P8 约束回顾（预算档位横幅）：后端每轮 meta 事件下发
+  const [constraints, setConstraints] = useState<{ recap: string; label: string } | null>(null);
+  // A 组交互升级：问题示例点选 + 痛点勾选
+  const [questionDetails, setQuestionDetails] = useState<{ question: string; examples: { label: string; note: string }[] }[]>([]);
+  // 选项单选状态：{问题: 选中label}——同组替换、跨组独立
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [painPoints, setPainPoints] = useState<string[]>([]);
+  const [painChecked, setPainChecked] = useState<Set<string>>(new Set());
+  const [painConfirmed, setPainConfirmed] = useState(false);
+  const [restored, setRestored] = useState(false); // 重进会话已恢复上次填写（顶部提示条）
   const bottomRef = useRef<HTMLDivElement>(null);
   const autoSentRef = useRef(false); // raw_idea 自动首发守卫（StrictMode 双执行防重）
+  const busyRef = useRef(false); // 双击/重提交同步守卫（React state 异步生效前的 race window）
   const loadedForRef = useRef<number | null>(null); // 每个项目只加载一次（防二次执行覆盖 msgs）
+
+  // 移动端右滑返回（辅助手势）：固定回历史项目列表，发送中停用防误滑中断流
+  useSwipeBack(
+    useCallback(() => router.push("/projects"), [router]),
+    !busy,
+  );
 
   // 初始加载：历史消息 + 根据 solution 恢复阶段
   useEffect(() => {
@@ -69,6 +114,29 @@ export default function ChatPage() {
         );
         if (d.solution) {
           setPhase(d.status === "diagnosing" ? "confirm_wait" : "done");
+        }
+        // 重进历史会话：从 req_profile 快照恢复选项卡/痛点卡/约束横幅
+        // （此前这些只在 SSE meta 里下发，刷新后选项卡直接消失）
+        const rp = d.req_profile;
+        if (rp && d.status === "diagnosing" && !d.solution) {
+          const qs = rp.clarify_questions?.length
+            ? rp.clarify_questions
+            : rp.requirements?.missing_info ?? [];
+          if (qs.length) setQuestions(qs);
+          // 优先用快照顶层的 question_details；旧快照退回 requirements 内的
+          const qd = rp.question_details?.length
+            ? rp.question_details
+            : rp.requirements?.question_details ?? [];
+          if (qd.length) setQuestionDetails(qd);
+          if (rp.pain_points?.length) {
+            setPainPoints(rp.pain_points);
+            setPainChecked((prev) => (prev.size ? prev : new Set(rp.pain_points)));
+          }
+          if (rp.confirmed_pain_points?.length) setPainConfirmed(true);
+          if (rp.budget_tier?.recap) {
+            setConstraints({ recap: rp.budget_tier.recap, label: rp.budget_tier.label });
+          }
+          if (qs.length || rp.confirmed_pain_points?.length) setRestored(true);
         }
         setLoaded(true);
         // 关键：首页收集的想法还没进过对话 → 自动作为第一条消息发给 AI，
@@ -123,13 +191,16 @@ export default function ChatPage() {
    *  opts.explicitConfirm：用户主动点「确认方案」→ 完成后展示横幅并跳方案页；
    *  满轮强制收尾等非主动确认的 done 不跳页（不擅自替用户当作已确认）。
    *  file：附件（txt/docx/pdf/图片），后端提取文本后作为消息上下文。 */
-  async function send(text: string, opts?: { explicitConfirm?: boolean }, file?: File | null) {
+  const send = useCallback(async (text: string, opts?: { explicitConfirm?: boolean }, file?: File | null) => {
     const message = text.trim();
-    if ((!message && !file) || busy) return;
+    // busyRef 是同步 ref，挡住 React state 异步生效前的双击 race window
+    if ((!message && !file) || busy || busyRef.current) return;
+    busyRef.current = true;
     setError(null);
     setBusy(true);
     setInput("");
     setQuestions([]);
+    setRestored(false); // 发送后撤掉「已加载上次填写」提示条
     setStage(null);
     setMsgs((m) => [
       ...m,
@@ -139,8 +210,10 @@ export default function ChatPage() {
 
     let lastPhase = "";
     try {
+      const token = getToken();
       const resp = await fetch(file ? `${API_BASE}/api/chat/upload` : `${API_BASE}/api/chat`, {
         method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         ...(file
           ? { body: (() => {
               const fd = new FormData();
@@ -150,10 +223,14 @@ export default function ChatPage() {
               return fd;
             })() }
           : {
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
               body: JSON.stringify({ project_id: projectId, message }),
             }),
       });
+      if (resp.status === 401) {
+        handle401();
+        throw new Error("未登录或登录已过期");
+      }
       if (!resp.ok || !resp.body) {
         throw new Error(`API ${resp.status}: ${await resp.text()}`);
       }
@@ -165,11 +242,35 @@ export default function ChatPage() {
           lastPhase = evt.phase as string;
           setPhase(evt.phase as string);
           setQuestions((evt.questions as string[]) ?? []);
+          if (evt.constraints) setConstraints(evt.constraints as { recap: string; label: string });
+          // A 组：问题示例 + 痛点候选（首次 meta 时初始化勾选为全选，确认一键完成）
+          if (evt.question_details) {
+            setQuestionDetails(evt.question_details as { question: string; examples: { label: string; note: string }[] }[]);
+            // 新一轮问题 → 清空旧选中（问题变了，旧选择不再对应）
+            setSelected({});
+          }
+          if (evt.pain_points) {
+            const pts = evt.pain_points as string[];
+            setPainPoints(pts);
+            setPainChecked((prev) => (prev.size ? prev : new Set(pts)));
+          }
+          if (evt.confirmed_pain_points) setPainConfirmed(true);
+          if (evt.phase === "busy") {
+            // 服务端流内锁失败（并发请求被挡），展示一条系统消息但不写入对话历史
+            setError("当前项目正在处理中，请不要重复提交，请等待本次任务完成");
+            setBusy(false); // 没真发出去，立刻解锁
+            busyRef.current = false;
+            return;
+          }
         } else if (type === "stage") {
           setStage(evt.label as string); // 图节点阶段：「正在生成方案…」等
         } else if (type === "delta") {
           acc += evt.content as string;
           setStreamBuf(acc);
+        } else if (type === "reset") {
+          // 机密兜底替换：后端替换了已流出的内容，前端清空重绘
+          acc = "";
+          setStreamBuf("");
         }
         // done 事件在下面统一收尾
       });
@@ -188,27 +289,48 @@ export default function ChatPage() {
     } finally {
       setStreamBuf(null);
       setBusy(false);
+      busyRef.current = false;
     }
-  }
+  }, [busy, projectId, router]);
 
   /** 确认循环动作：与普通消息同走 SSE 通道（意图由后端关键词分类）。
    *  用户消息立即上屏、回复流式输出，不再是长时间黑盒等待。 */
   function confirmAction(action: "confirm" | "revise", feedback?: string) {
     const text = action === "confirm" ? "确认，就这样" : (feedback ?? "").trim();
-    if (!text) return;
+    if (!text) {
+      setError(action === "revise" ? "先说说需要修改哪里，再点发送 ✍️" : "请输入内容再发送 ✍️");
+      inputRef.current?.focus();
+      return;
+    }
     setReviseMode(false);
     send(text, { explicitConfirm: action === "confirm" });
   }
 
-  /** 组装输入并发送：有「当前问题」时自动带上问题上下文（AI 能对号入座）；
-   *  有附件时优先走上传通道（输入文字作为附件说明） */
+  /** 组装输入并发送：
+   *  - 有点选答案（selected）→ 每题一行「问题：答案」发送（AI 能对号入座）+ 手打补充
+   *  - 有「当前问题」→ 带问题上下文
+   *  - 有附件时优先走上传通道（输入文字作为附件说明） */
   function submitInput() {
     const text = input.trim();
-    if (!text && !file) return;
+    const selectedEntries = Object.entries(selected);
+    if (!text && !file && !selectedEntries.length) {
+      // 空发送不再静默：提示 + 聚焦（移动端「点了没反应」体验最差）
+      setError("先点选答案或输入内容再发送 ✍️");
+      inputRef.current?.focus();
+      return;
+    }
     const f = file;
     setFile(null);
     if (f) {
       send(text, undefined, f);
+      return;
+    }
+    if (selectedEntries.length) {
+      // 点选答案逐行排版（不堆一起），补充文字放最后
+      const lines = selectedEntries.map(([q, a]) => `${q}：${a}`);
+      if (text) lines.push(text);
+      setSelected({});
+      send(lines.join("\n"));
       return;
     }
     if (activeQuestion) {
@@ -222,61 +344,161 @@ export default function ChatPage() {
 
   const inputDisabled = busy || phase === "done";
 
+  /** A 组选项单选：同组点新选项 → 替换旧选择；跨组互不干扰。
+   *  选中项实时显示在输入框上方的「已选」条里（逐题排版，不堆在一起）。 */
+  function pickExample(question: string, label: string) {
+    setSelected((prev) => ({ ...prev, [question]: label }));
+  }
+
+  /** 取消某题的点选 */
+  function clearSelected(question: string) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      delete next[question];
+      return next;
+    });
+  }
+
+  /** A 组：痛点勾选切换 */
+  function togglePain(p: string) {
+    setPainChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return next;
+    });
+  }
+
+  /** A 组：确认勾选的痛点 → 发送【痛点确认】消息（后端代码级解析，全程引用） */
+  function confirmPain() {
+    const checked = painPoints.filter((p) => painChecked.has(p));
+    if (!checked.length) {
+      setError("至少勾选一条痛点，或直接回答下面的问题 ✍️");
+      return;
+    }
+    setPainConfirmed(true);
+    send(`【痛点确认】${checked.join("；")}`);
+  }
+
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: "0 16px", height: "100dvh", display: "flex", flexDirection: "column" }}>
+    <main style={{ maxWidth: 760, margin: "0 auto", padding: `0 ${space.xl}px`, height: "100dvh", display: "flex", flexDirection: "column" }}>
       <style>{`
         @keyframes blink { 0%,80%,100% { opacity: .25 } 40% { opacity: 1 } }
-        .dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; display: inline-block; animation: blink 1.2s infinite; }
+        .dot { width: 7px; height: 7px; border-radius: 50%; background: ${colors.muted.fg}; display: inline-block; animation: blink 1.2s infinite; }
         .dot:nth-child(2) { animation-delay: .2s }
         .dot:nth-child(3) { animation-delay: .4s }
       `}</style>
 
-      {/* 顶栏 */}
-      <header style={{ padding: "14px 0", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <h1 style={{ fontSize: 17, margin: 0 }}>{title}</h1>
-          <span style={{ fontSize: 12, color: "#646a73" }}>
+      {/* 顶栏：左上角返回入口固定在此（对话页是 100dvh 布局，消息区独立滚动，
+          顶栏天然常驻，无需悬浮栏）。返回目标 = 历史项目列表（层级路由栈） */}
+      <header style={{ padding: `${space.md}px 0`, borderBottom: borderStyle.card, display: "flex", alignItems: "center", gap: space.md }}>
+        <style jsx>{`
+          a.back-chat:active { background: ${colors.brand.primaryBgPressed}; opacity: .9; }
+        `}</style>
+        <Link
+          href="/projects"
+          className="back-chat"
+          aria-label="返回历史项目列表"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0,
+            minHeight: touch.large, padding: `0 ${space.md}px`, marginLeft: -space.md,
+            color: colors.text.primary, fontSize: font.sm,
+            textDecoration: "none", borderRadius: radius.md, whiteSpace: "nowrap",
+          }}
+        >
+          ← 返回
+        </Link>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ fontSize: font.xl, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</h1>
+          <span style={{ fontSize: font.xs, color: colors.text.secondary }}>
             {STATUS_TEXT[phase === "clarify" ? "diagnosing" : phase === "confirm_wait" ? "plan_generated" : "done"]}
           </span>
         </div>
-        <Link href="/projects" style={{ fontSize: 13, color: "#2563eb", textDecoration: "none" }}>
-          ← 历史项目
-        </Link>
       </header>
 
-      {/* 消息区 */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 0" }}>
-        {!loaded && <p style={{ color: "#646a73", textAlign: "center" }}>加载中…</p>}
+      {/* 约束回顾横幅（P8）：预算已锁定时全程展示，用户随时知道方案往哪走 */}
+      {constraints && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: space.sm,
+          padding: `${space.xs}px ${space.base}px`,
+          margin: `${space.xs}px 0`,
+          background: colors.brand.primaryBg, borderRadius: radius.md,
+          border: `1px solid ${colors.brand.primaryBorder}`,
+          color: colors.brand.onPrimaryBg, fontSize: font.xs,
+        }}>
+          <span>📍 {constraints.recap}</span>
+        </div>
+      )}
 
-        {msgs.map((m, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 12 }}>
-            <div
-              style={{
-                maxWidth: "85%",
-                padding: "10px 14px",
-                borderRadius: 12,
-                fontSize: 14,
-                lineHeight: 1.7,
-                whiteSpace: "pre-wrap",
-                background: m.role === "user" ? "#2563eb" : "#fff",
-                color: m.role === "user" ? "#fff" : "#1f2329",
-                border: m.role === "user" ? "none" : "1px solid #e5e7eb",
-                borderBottomRightRadius: m.role === "user" ? 4 : 12,
-                borderBottomLeftRadius: m.role === "user" ? 12 : 4,
-              }}
-            >
-              {fileTagOf(m.content) ?? m.content}
+      {/* 重进会话恢复提示：告知选项卡已回填可继续修改 */}
+      {restored && !busy && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: space.sm,
+          padding: `${space.xs}px ${space.base}px`, margin: `${space.xs}px 0`,
+          background: colors.bg.muted, borderRadius: radius.md,
+          fontSize: font.xs, color: colors.text.secondary,
+        }}>
+          ↩️ 已加载上次填写的需求：下方选项可直接点选修改，改完发送即可继续生成方案
+        </div>
+      )}
+
+      {/* 消息区 */}
+      <div style={{ flex: 1, overflowY: "auto", padding: `${space.xl}px 0` }}>
+        {!loaded && <p style={{ color: colors.text.secondary, textAlign: "center" }}>加载中…</p>}
+
+        {msgs.map((m, i) => {
+          const clarify = m.role === "assistant" ? clarifyBubbleOf(m.content) : null;
+          if (clarify) {
+            // 追问消息：引导句旁白 + 独立问题小框（不混进聊天气泡，视觉上「旁白感」）
+            return (
+              <div key={i} style={{ textAlign: "center", margin: `0 0 ${space.base}px` }}>
+                <div style={{ fontSize: font.xs, color: colors.text.secondary, margin: `0 0 ${space.sm}px` }}>
+                  {clarify.lead}
+                </div>
+                <div style={{
+                  display: "inline-block", textAlign: "left", maxWidth: "92%",
+                  background: colors.bg.muted, border: borderStyle.card, borderRadius: radius.md,
+                  padding: `${space.md}px ${space.lg}px`,
+                }}>
+                  {clarify.items.map((q, j) => (
+                    <div key={j} style={{ fontSize: font.sm, color: colors.text.primary, lineHeight: lineHeight.relaxed, padding: `${space.xxs}px 0` }}>
+                      {j + 1}. {q}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: space.base }}>
+              <div
+                style={{
+                  maxWidth: "85%",
+                  padding: `${space.md}px ${space.lg}px`,
+                  borderRadius: radius.xl,
+                  fontSize: font.base,
+                  lineHeight: lineHeight.relaxed,
+                  whiteSpace: "pre-wrap",
+                  background: m.role === "user" ? colors.brand.primary : colors.bg.surface,
+                  color: m.role === "user" ? colors.text.inverse : colors.text.primary,
+                  border: m.role === "user" ? "none" : borderStyle.card,
+                  borderBottomRightRadius: m.role === "user" ? radius.sm : radius.xl,
+                  borderBottomLeftRadius: m.role === "user" ? radius.xl : radius.sm,
+                }}
+              >
+                {fileTagOf(m.content) ?? m.content}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {/* 流式输出中的助手气泡 */}
         {streamBuf !== null && (
-          <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: space.base }}>
             <div style={{
-              maxWidth: "85%", padding: "10px 14px", borderRadius: 12, fontSize: 14,
-              lineHeight: 1.7, whiteSpace: "pre-wrap", background: "#fff",
-              border: "1px solid #e5e7eb", borderBottomLeftRadius: 4,
+              maxWidth: "85%", padding: `${space.md}px ${space.lg}px`, borderRadius: radius.xl, fontSize: font.base,
+              lineHeight: lineHeight.relaxed, whiteSpace: "pre-wrap", background: colors.bg.surface,
+              border: borderStyle.card, borderBottomLeftRadius: radius.sm,
             }}>
               {streamBuf || (
                 <span>
@@ -290,47 +512,134 @@ export default function ChatPage() {
         {/* 确认收尾横幅：「我们会尽快联系您」 */}
         {confirmBanner && (
           <div style={{
-            margin: "4px 0 12px", padding: "12px 16px", borderRadius: 10,
-            background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 14, color: "#15803d",
+            margin: `${space.xxs}px 0 ${space.base}px`, padding: `${space.base}px ${space.xl}px`, borderRadius: radius.lg,
+            background: colors.status.successBg, border: `1px solid ${colors.status.successBorder}`, fontSize: font.base, color: colors.status.successStrong,
           }}>
-            ✓ 方案已确认，我们会尽快联系您——正在打开方案页…
+            {/* 免费思路版：确认 = 保存结束，没有对接环节，文案跟着变（产品规则 #六） */}
+            {constraints?.label === "免费思路版"
+              ? "✓ 方案已保存，本次诊断完成——正在打开方案页…"
+              : "✓ 方案已确认，我们会尽快联系您——正在打开方案页…"}
           </div>
         )}
 
-        {/* 追问快捷选择：点击设为「当前问题」，输入框留给用户自由作答 */}
+        {/* 追问快捷选择（A 组升级：问题卡 + 示例点选 + 痛点勾选） */}
         {phase === "clarify" && questions.length > 0 && !busy && (
-          <div style={{ margin: "4px 0 12px" }}>
-            {questions.map((q, i) => (
-              <button
-                key={i}
-                onClick={() => setActiveQuestion((v) => (v === q ? null : q))}
-                style={{
-                  display: "block", margin: "0 0 8px", padding: "10px 12px", maxWidth: "85%",
-                  minHeight: 40,
-                  background: activeQuestion === q ? "#dbeafe" : "#eff6ff",
-                  color: "#2563eb", border: `1px solid ${activeQuestion === q ? "#93c5fd" : "#bfdbfe"}`,
-                  borderRadius: 8, fontSize: 13, cursor: "pointer", textAlign: "left",
-                }}
-              >
-                {activeQuestion === q ? "📌" : "💡"} {q}
-              </button>
-            ))}
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>点击问题设为「当前问题」，可往上翻聊天记录，想好再答</span>
+          <div style={{ margin: `${space.xxs}px 0 ${space.base}px` }}>
+            {/* 痛点确认卡：AI 识别的痛点 → 勾选确认（不适用就不勾），确认后方案逐条回应 */}
+            {painPoints.length > 0 && !painConfirmed && (
+              <div style={{
+                margin: `0 0 ${space.base}px`, padding: `${space.md}px ${space.base}px`,
+                background: colors.bg.surface, border: `1px solid ${colors.brand.primaryBorder}`, borderRadius: radius.md,
+              }}>
+                <div style={{ fontSize: font.sm, color: colors.text.primary, marginBottom: space.sm, fontWeight: 600 }}>
+                  🎯 我识别到你这些痛点，勾选确认（不对的取消勾选）：
+                </div>
+                {painPoints.map((p) => (
+                  <label key={p} style={{
+                    display: "flex", alignItems: "center", gap: space.sm,
+                    padding: `${space.xs}px 0`, cursor: "pointer",
+                    fontSize: font.sm, color: colors.text.primary, userSelect: "none",
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={painChecked.has(p)}
+                      onChange={() => togglePain(p)}
+                      style={{ width: 18, height: 18, accentColor: colors.brand.primary, cursor: "pointer" }}
+                    />
+                    <span>{p}</span>
+                  </label>
+                ))}
+                <button
+                  onClick={confirmPain}
+                  style={{
+                    marginTop: space.xs, minHeight: touch.base, padding: `0 ${space.lg}px`,
+                    background: colors.brand.primary, color: colors.text.inverse,
+                    border: "none", borderRadius: radius.md, fontSize: font.sm, cursor: "pointer",
+                  }}
+                >
+                  ✓ 确认这些痛点
+                </button>
+              </div>
+            )}
+
+            {/* 问题卡（每组一题）：选项为「label + 大白话说明」小卡，
+                同组单选（点新替旧）、跨组互不干扰；选中加深底色 */}
+            {questions.map((q, i) => {
+              const details = questionDetails.find((d) => d.question === q);
+              const examples = details?.examples ?? [];
+              return (
+                <div key={i} style={{
+                  margin: `0 0 ${space.lg}px`, padding: `${space.md}px ${space.base}px`, maxWidth: "92%",
+                  background: colors.brand.primaryBg, borderRadius: radius.md,
+                  border: `1px solid ${activeQuestion === q ? colors.brand.primaryBorderPressed : colors.brand.primaryBorder}`,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.sm }}>
+                    <button
+                      onClick={() => setActiveQuestion((v) => (v === q ? null : q))}
+                      style={{
+                        display: "block", flex: 1, textAlign: "left", minHeight: touch.base,
+                        background: "transparent", border: "none", cursor: "pointer",
+                        color: colors.brand.onPrimaryBg, fontSize: font.sm, fontWeight: 600, padding: 0,
+                      }}
+                    >
+                      {activeQuestion === q ? "📌" : "💡"} {q}
+                    </button>
+                    {selected[q] && (
+                      <span style={{ fontSize: font.xs, color: colors.brand.onPrimaryBg, whiteSpace: "nowrap" }}>
+                        已选：{selected[q]}
+                      </span>
+                    )}
+                  </div>
+                  {examples.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: space.md, marginTop: space.md }}>
+                      {examples.map((e) => {
+                        const isSel = selected[q] === e.label;
+                        return (
+                          <button
+                            key={e.label}
+                            onClick={() => pickExample(q, e.label)}
+                            style={{
+                              flex: "1 1 30%", minWidth: 120, textAlign: "left",
+                              minHeight: touch.base, padding: `${space.sm}px ${space.md}px`,
+                              // 选中态：加深底色 + 高亮边框 + ✓，与未选中明显区分
+                              background: isSel ? colors.brand.primaryBgPressed : colors.bg.surface,
+                              color: colors.brand.linkText,
+                              border: `1px solid ${isSel ? colors.brand.primaryBorderPressed : colors.brand.primaryBorder}`,
+                              borderRadius: radius.md, cursor: "pointer",
+                            }}
+                          >
+                            <span style={{ display: "block", fontSize: font.sm, fontWeight: isSel ? 700 : 500 }}>
+                              {isSel ? "✓ " : ""}{e.label}
+                            </span>
+                            {e.note && (
+                              <span style={{ display: "block", fontSize: font.xs, color: colors.text.tertiary, marginTop: 2, lineHeight: lineHeight.normal }}>
+                                {e.note}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <span style={{ fontSize: font.xs, color: colors.text.tertiary }}>每个问题点一个选项（点错了再点别的自动替换），也可以点问题标题自由作答</span>
           </div>
         )}
 
         {/* 方案确认栏 */}
         {phase === "confirm_wait" && !busy && (
-          <div style={{ margin: "8px 0 16px", display: "flex", gap: 10 }}>
+          <div style={{ margin: `${space.sm}px 0 ${space.xl}px`, display: "flex", gap: space.md }}>
             <button
               onClick={() => confirmAction("confirm")}
-              style={{ minHeight: 44, padding: "9px 20px", background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+              style={{ minHeight: touch.large, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
             >
               ✓ 确认方案
             </button>
             <button
               onClick={() => setReviseMode(true)}
-              style={{ minHeight: 44, padding: "9px 20px", background: "#fff", color: "#2563eb", border: "1px solid #2563eb", borderRadius: 8, fontSize: 14, cursor: "pointer" }}
+              style={{ minHeight: touch.large, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.bg.surface, color: colors.brand.linkText, border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
             >
               ✏️ 需要修改
             </button>
@@ -341,66 +650,115 @@ export default function ChatPage() {
         {phase === "done" && !busy && (
           <Link
             href={`/project/${projectId}`}
-            style={{ display: "inline-block", margin: "4px 0 16px", padding: "9px 20px", background: "#2563eb", color: "#fff", borderRadius: 8, fontSize: 14, textDecoration: "none" }}
+            style={{ display: "inline-block", margin: `${space.xxs}px 0 ${space.xl}px`, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.brand.primary, color: colors.text.inverse, borderRadius: radius.md, fontSize: font.base, textDecoration: "none" }}
           >
             查看完整方案 →
           </Link>
         )}
 
-        {/* 等待状态行：图执行阶段 + 计时（正文开始流式后隐藏） */}
+        {/* 等待状态区：分步阶段 + 计时润色 + 安抚小字 + 超时兜底
+           （正文开始流式后隐藏；防「长时间空白像卡死」的焦虑） */}
         {busy && !streamBuf && (
-          <p style={{ fontSize: 12, color: "#94a3b8", margin: "0 0 12px" }}>
-            ⚙ {stage ?? "后端处理中…"}（已等待 {waitSec} 秒）
-          </p>
+          <div style={{ margin: `0 0 ${space.base}px` }}>
+            <p style={{ fontSize: font.sm, color: colors.text.secondary, margin: 0 }}>
+              ⚙ {stage ?? "正在读取你的项目需求…"}（已处理 {waitSec} 秒，AI 正在分析，请稍候）
+            </p>
+            <p style={{ fontSize: font.xs, color: colors.text.tertiary, margin: `${space.xs}px 0 0` }}>
+              复杂需求评估需要一点时间，不会卡住，请勿重复提交
+            </p>
+            {waitSec > 25 && (
+              <p style={{ fontSize: font.xs, color: colors.text.secondary, margin: `${space.xs}px 0 0` }}>
+                ⏳ 评估内容较多，还在生成中，一般不会超过 60 秒
+              </p>
+            )}
+          </div>
         )}
 
-        {error && <p style={{ color: "#dc2626", fontSize: 13 }}>出错了：{error}</p>}
         <div ref={bottomRef} />
       </div>
 
       {/* 输入区（safe-area 兜底 iPhone 底部横条） */}
+      {/* 发送引导提示（空发送/连接异常）：贴近操作点，居中醒目 */}
+      {error && (
+        <p style={{
+          color: colors.status.danger, fontSize: font.sm,
+          margin: `0 0 ${space.sm}px`, textAlign: "center",
+        }}>
+          {error}
+        </p>
+      )}
       {/* 当前问题提示条：用户可看着问题、翻聊天记录，再自由作答 */}
       {activeQuestion && phase === "clarify" && !busy && (
         <div style={{
-          margin: "0 0 8px", padding: "8px 12px", background: "#eff6ff",
-          border: "1px solid #bfdbfe", borderRadius: 8, display: "flex", alignItems: "center", gap: 8,
+          margin: `0 0 ${space.sm}px`, padding: `${space.sm}px ${space.base}px`, background: colors.brand.primaryBg,
+          border: `1px solid ${colors.brand.primaryBorder}`, borderRadius: radius.md, display: "flex", alignItems: "center", gap: space.sm,
         }}>
-          <span style={{ flex: 1, fontSize: 13, color: "#2563eb" }}>
+          <span style={{ flex: 1, fontSize: font.sm, color: colors.text.primary }}>
             📌 当前问题：{activeQuestion}
           </span>
           <button
             onClick={() => setActiveQuestion(null)}
-            style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 14, cursor: "pointer", padding: "4px" }}
+            style={{ background: "none", border: "none", color: colors.muted.fg, fontSize: font.base, cursor: "pointer", padding: space.xxs }}
             aria-label="取消当前问题"
           >
             ✕
           </button>
         </div>
       )}
+      {/* 已选答案预览条：点选的选项逐题实时展示（自动排版不堆一起），✕ 可取消 */}
+      {Object.keys(selected).length > 0 && phase === "clarify" && !busy && (
+        <div style={{
+          margin: `0 0 ${space.sm}px`, padding: `${space.sm}px ${space.base}px`,
+          background: colors.brand.primaryBg, border: `1px solid ${colors.brand.primaryBorder}`,
+          borderRadius: radius.md, display: "flex", flexWrap: "wrap", gap: space.sm,
+        }}>
+          {Object.entries(selected).map(([q, a]) => (
+            <span key={q} style={{
+              display: "inline-flex", alignItems: "center", gap: space.xs,
+              padding: `${space.xxs}px ${space.md}px`, borderRadius: radius.pill,
+              background: colors.brand.primaryBgPressed, color: colors.brand.onPrimaryBg,
+              fontSize: font.sm,
+            }}>
+              <span style={{ color: colors.text.tertiary, fontSize: font.xs }}>{q}</span>
+              <b>{a}</b>
+              <button
+                onClick={() => clearSelected(q)}
+                aria-label={`取消 ${q} 的选择`}
+                style={{ background: "none", border: "none", color: colors.brand.onPrimaryBg, cursor: "pointer", padding: 0, fontSize: font.sm, lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          <span style={{ fontSize: font.xs, color: colors.text.tertiary, alignSelf: "center" }}>
+            发送时逐题带上答案，下方可补充文字
+          </span>
+        </div>
+      )}
       {/* 待发送附件预览 */}
       {file && !busy && (
         <div style={{
-          margin: "0 0 8px", padding: "8px 12px", background: "#f9fafb",
-          border: "1px solid #e5e7eb", borderRadius: 8, display: "flex", alignItems: "center", gap: 8,
+          margin: `0 0 ${space.sm}px`, padding: `${space.sm}px ${space.base}px`, background: colors.bg.muted,
+          border: borderStyle.card, borderRadius: radius.md, display: "flex", alignItems: "center", gap: space.sm,
         }}>
-          <span style={{ flex: 1, fontSize: 13, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ flex: 1, fontSize: font.sm, color: colors.text.tertiary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             📎 {file.name}（{Math.max(1, Math.round(file.size / 1024))} KB）
           </span>
           <button
             onClick={() => setFile(null)}
-            style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 14, cursor: "pointer", padding: 4 }}
+            style={{ background: "none", border: "none", color: colors.muted.fg, fontSize: font.base, cursor: "pointer", padding: space.xxs }}
             aria-label="移除附件"
           >
             ✕
           </button>
         </div>
       )}
-      <div style={{ borderTop: "1px solid #e5e7eb", padding: "12px 0 calc(12px + env(safe-area-inset-bottom))", display: "flex", gap: 10, alignItems: "flex-end" }}>
+      <div style={{ borderTop: borderStyle.card, padding: `${space.base}px 0 calc(${space.base}px + env(safe-area-inset-bottom))`, display: "flex", gap: space.md, alignItems: "flex-end" }}>
         <label
           style={{
-            minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", justifyContent: "center",
-            border: "1px solid #d1d5db", borderRadius: 10, fontSize: 18, cursor: inputDisabled ? "not-allowed" : "pointer",
-            background: inputDisabled ? "#f3f4f6" : "#fff", userSelect: "none",
+            minHeight: touch.large, minWidth: touch.large, display: "flex", alignItems: "center", justifyContent: "center",
+            border: borderStyle.input, borderRadius: radius.lg, fontSize: font.xxl, cursor: inputDisabled ? "not-allowed" : "pointer",
+            background: inputDisabled ? colors.bg.disabled : colors.bg.surface, userSelect: "none",
           }}
           title="上传数据文件（txt/docx/pdf/图片），AI 会根据内容调整方案"
         >
@@ -418,8 +776,12 @@ export default function ChatPage() {
           />
         </label>
         <textarea
+          ref={inputRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            if (error) setError(null); // 开始输入即清提示
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -440,18 +802,18 @@ export default function ChatPage() {
           rows={2}
           disabled={inputDisabled}
           style={{
-            flex: 1, padding: "10px 12px", fontSize: 16, border: "1px solid #d1d5db",
-            borderRadius: 10, resize: "none", outline: "none", fontFamily: "inherit",
-            background: inputDisabled ? "#f3f4f6" : "#fff",
+            flex: 1, padding: `${space.md}px ${space.base}px`, fontSize: font.lg, border: borderStyle.input,
+            borderRadius: radius.lg, resize: "none", outline: "none", fontFamily: "inherit",
+            background: inputDisabled ? colors.bg.disabled : colors.bg.surface,
           }}
         />
         <button
           onClick={() => (reviseMode ? confirmAction("revise", input) : submitInput())}
-          disabled={inputDisabled || (!input.trim() && !file)}
+          disabled={inputDisabled}
           style={{
-            minHeight: 44, padding: "0 22px", fontSize: 15, borderRadius: 10, border: "none",
-            background: inputDisabled || !input.trim() ? "#9ca3af" : "#2563eb",
-            color: "#fff", cursor: inputDisabled || !input.trim() ? "not-allowed" : "pointer",
+            minHeight: touch.large, padding: `0 ${space.xxl + 6}px`, fontSize: font.md, borderRadius: radius.lg, border: "none",
+            background: inputDisabled ? colors.muted.bg : colors.brand.primary,
+            color: colors.text.inverse, cursor: inputDisabled ? "not-allowed" : "pointer",
           }}
         >
           {busy ? "…" : "发送"}
