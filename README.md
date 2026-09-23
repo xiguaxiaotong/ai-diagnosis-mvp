@@ -4,6 +4,8 @@
 
 AIAgent 赋能服务平台（商业计划书见「初创团队文档」）M0 阶段产物。
 
+> 面向最终用户的使用文档：[docs/用户使用说明.md](docs/用户使用说明.md)
+
 ## 技术栈
 
 - 后端：FastAPI + DeepSeek（OpenAI 兼容协议）+ SQLAlchemy 2.0 + SQLite
