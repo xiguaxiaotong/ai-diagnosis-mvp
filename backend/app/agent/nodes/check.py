@@ -17,9 +17,14 @@ MAX_CLARIFY_ROUNDS = 5
 
 
 def check_completeness(state: DiagnosisState) -> str:
-    """路由：出错 done / 轮次用尽 force / 缺信息 ask / 齐全 done。"""
-    if state.get("error"):
-        return ROUTE_DONE
+    """路由：缺信息 ask（needs_clarify 优先，避免错误状态把图推进到 retrieve/generate）/
+    轮次用尽 force / 齐全 done。
+
+    注意：needs_clarify 优先于 error。
+    之前曾因 understand 解析失败时同时返回 needs_clarify+error，
+    error 优先让图继续走到 retrieve/generate 二次失败，最终卡在
+    wait_confirmation 显示空 reply 的体验灾难。
+    """
     if state.get("needs_clarify"):
         if state.get("clarify_round", 0) >= MAX_CLARIFY_ROUNDS:
             return ROUTE_FORCE

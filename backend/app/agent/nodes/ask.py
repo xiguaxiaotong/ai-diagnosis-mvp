@@ -19,7 +19,13 @@ def ask_node(state: DiagnosisState) -> dict:
     if not questions:
         return {}
 
-    lines = ["为了给您出准确的方案和报价，我需要先确认几个问题："]
+    lines = []
+    # 约束回顾（P8）：每轮开头简短复述已锁定的预算档，用户随时知道方案往哪走
+    tier = state.get("budget_tier")
+    if tier:
+        lines.append(f"📍 {tier['recap']}")
+        lines.append("")
+    lines.append("为了给您出准确的方案和报价，我需要先确认几个问题：")
     for i, q in enumerate(questions, 1):
         lines.append(f"{i}. {q}")
     content = "\n".join(lines)

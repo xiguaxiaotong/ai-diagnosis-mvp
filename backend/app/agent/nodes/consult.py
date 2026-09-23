@@ -17,18 +17,53 @@ import logging
 
 from app.agent.prompt_loader import render
 from app.agent.state import DiagnosisState
+from app.infra import stream_sink
 from app.infra.model_client import chat_client
 
 logger = logging.getLogger(__name__)
 
 # ---------- 意图分类（确定性规则） ----------
 
+# 注入/对抗式探测（优先级最高）：
+# 任何试图绕过系统约束、套取敏感信息的指令都判为咨询，由 consult 节点用机密话术挡回去
+_INJECTION_MARKERS = (
+    "ignore previous", "ignore above", "忽略上面", "忽略以上", "忽略前文",
+    "忽略指令", "忽略提示", "忘记之前", "disregard", "override",
+    "system prompt", "系统提示", "系统提示词", "你的指令",
+    "你是谁", "你叫什么", "what are you", "who are you",
+    "训练数据", "你的模型", "你的参数", "你的 prompt", "你的 prompt",
+    "假装你是", "角色扮演", "as a test", "as a developer",
+    "developer mode", "jailbreak", "DAN",
+    # 身份伪装类：自称内部/测试/开发/研发/老板，套取机密
+    "我是测试", "我是开发", "我是研发", "我是工程师", "我是员工",
+    "我是内部", "我是老板", "我是主管", "我是产品经理",
+    "作为测试", "作为开发", "作为研发", "作为工程师",
+    "as a tester", "as an engineer", "as staff", "as a staff",
+)
+
+# 商业机密/敏感词（用户问这些时必须走 consult，由 LLM 拒答+引导人工）
+_SECRET_PROBE_MARKERS = (
+    "成本价", "成本多少", "成本是", "你们的成本", "我们的成本",
+    "利润率", "毛利", "你们的利润", "赚多少",
+    "内部核算", "内部价", "成本结构",
+    "员工工资", "员工薪资",
+    "采购价", "采购成本", "服务器采购",
+    "客户名单", "其他客户的报价",
+    "训练数据", "数据来源",
+    # 内部信息/底价/后台参数类：拒绝回答
+    "底价", "最低价", "保底价", "内部报价", "内部价格", "内部信息",
+    "成本明细", "报价明细", "后台参数", "后台数据", "后台价格",
+    "你们的价格", "你们怎么定价", "怎么定价",
+)
+
 # 需求 / 修改 / 确认信号：命中即不是咨询（优先级最高）
 _REQUIREMENT_MARKERS = (
-    "我要", "我想", "想做", "做一个", "做个", "开发", "加一个", "加个", "加上",
+    "我要", "我想", "想做", "能做", "做一个", "做个", "开发", "加一个", "加个", "加上",
     "去掉", "删掉", "换成", "改成", "预算", "工期", "人用", "规模",
     "万元", "块钱", "我的回答", "确认", "没问题", "同意", "不要了", "算了",
     "便宜", "砍价", "分期", "修改", "调整", "补充", "打折", "优惠",
+    # 成本偏好信号：用户表达「想省钱」是预算约束（需求信息），不是咨询
+    "免费", "试用", "低成本", "少花钱", "不想花", "省钱", "经济",
 )
 
 # 疑问信号：出现即倾向咨询
@@ -44,12 +79,21 @@ _GREETINGS = ("你好", "您好", "hi", "hello", "在吗", "谢谢", "辛苦了"
 def is_consult(text: str) -> bool:
     """用户消息 → 是否咨询/闲聊（而非提供需求、修改或确认方案）。
 
-    顺序：需求信号 → 非咨询；疑问/寒暄 → 咨询；超过 15 字的实质内容
-    兜底视为需求（宁可进需求流程，不可漏接用户真正想说的东西）。
+    顺序（优先级高 → 低）：
+    1. 注入/对抗式探测（"ignore previous"、"你是谁"、"系统提示词"…）→ 强制咨询，
+       让 consult 节点用机密话术挡回去，不能让它误入 understand 浪费 LLM 调用。
+    2. 商业机密探针（"成本多少"、"利润率"、"内部核算"…）→ 强制咨询，同样的保护逻辑。
+    3. 需求/修改/确认信号 → 非咨询。
+    4. 疑问词/寒暄 → 咨询。
+    5. > 15 字兜底为需求（宁可进需求流程，不可漏接用户真正想说的东西）。
     """
     t = text.strip().lower()
     if not t:
         return False
+    if any(k in t for k in _INJECTION_MARKERS):
+        return True
+    if any(k in t for k in _SECRET_PROBE_MARKERS):
+        return True
     if any(k in t for k in _REQUIREMENT_MARKERS):
         return False
     if any(k in t for k in _QUESTION_MARKERS):
@@ -112,9 +156,35 @@ def consult_node(state: DiagnosisState) -> dict:
         user_question=user_question,
         plan_note=plan_note,
     )
-    answer = chat_client.chat([{"role": "user", "content": prompt}], temperature=0.4)
 
-    # 机密兜底：万一 LLM 仍然输出了敏感内容，直接替换成标准话术
+    # 真流式：LLM token 边生成边经 stream_sink 推给前端（豆包式逐字输出）。
+    # 机密检测改为流中增量校验：累积文本一旦命中敏感词，立即 reset 前端已显示
+    # 内容并替换为兜底话术（旧实现流式化后无法事前全文校验，这是等价防护）。
+    answer_parts: list[str] = []
+    try:
+        try:
+            for token in chat_client.stream_chat(
+                [{"role": "user", "content": prompt}], temperature=0.4
+            ):
+                answer_parts.append(token)
+                if _leaks_secrets("".join(answer_parts)):
+                    break
+                stream_sink.emit(token)
+        except Exception:
+            logger.exception("[consult] 流式调用失败，退化为非流式")
+            answer_parts = [chat_client.chat(
+                [{"role": "user", "content": prompt}], temperature=0.4)]
+    except Exception:
+        # LLM 调用异常时不能让整图挂掉——降级为兜底话术，不消耗节点、回复用户
+        logger.exception("[consult] LLM 调用失败，使用兜底话术")
+        answer_parts = [
+            "抱歉，刚才没听清您的问题。您可以再说一遍，或者我们继续完善方案细节。",
+            "如果想了解报价相关的细节，可以留下联系方式，专人人工审核后为您解释。",
+        ]
+
+    answer = "".join(answer_parts)
+
+    # 机密兜底：万一 LLM 仍然输出了敏感内容，清空已流出内容并替换成标准话术
     if _leaks_secrets(answer):
         logger.warning("[consult] 疑似泄露机密内容，已替换为标准话术")
         answer = (
@@ -122,6 +192,8 @@ def consult_node(state: DiagnosisState) -> dict:
             "我们的报价是根据您的需求由系统自动测算的，透明合理。"
             "如果您需要详细了解，可以留下联系方式，我们会有专人（人工审核）为您对接解释。"
         )
+        stream_sink.reset()
+        stream_sink.emit(answer)
 
     messages = list(state.get("messages", []))
     messages.append({"role": "assistant", "content": answer})
