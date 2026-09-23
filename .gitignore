@@ -16,10 +16,22 @@ out/
 
 # 本地数据
 backend/data/sqlite.db
+backend/data/checkpoints.sqlite*
 backend/data/chroma/*
 !backend/data/chroma/.gitkeep
 backend/data/cases/*
 !backend/data/cases/.gitkeep
+
+# 运行日志
+*.log
+
+# 本地调试杂项
+backend/test_req.json
+
+# 部署产物（脚本入库，大文件产物不入库）
+_deploy/app.tar.gz
+_deploy/wheels_offline/
+wqy.deb
 
 # 系统文件
 .DS_Store
