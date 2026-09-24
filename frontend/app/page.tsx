@@ -25,12 +25,118 @@ function menuItemStyle(
   };
 }
 
-/** 目标人群（个体户/个人/工作室）的填写示范：真实场景 + 无术语 */
-const HOME_EXAMPLES = [
-  "示例（奶茶店）：我想做一个自动回复客户微信消息的 AI 客服，能查菜单、处理预约…",
-  "示例（个人）：我想做一个私人知识库 AI，上传我的客户资料，随时查询…",
-  "示例（工作室）：给员工做一个内部文档问答 AI，快速查公司制度…",
-];
+/** 单色线性 SVG 图标：stroke=currentColor 跟随主题文字色/主题色，
+ *  统一线条粗细与圆角端点——全站只用这一套，不引入 emoji/彩色图标 */
+function Icon({ name, size = 18 }: { name: string; size?: number }) {
+  const paths: Record<string, React.ReactNode> = {
+    chat: (
+      <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.4-4.1-1L4 20l1-4.4A8.5 8.5 0 1 1 21 11.5z" />
+    ),
+    book: (
+      <>
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" />
+        <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
+      </>
+    ),
+    doc: (
+      <>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
+        <path d="M14 2v6h6" />
+        <circle cx="11" cy="13.5" r="2.5" />
+        <path d="m12.8 15.3 2.2 2.2" />
+      </>
+    ),
+    store: (
+      <>
+        <path d="M4 10v10h16V10" />
+        <path d="M2.5 7 4 3h16l1.5 4a2.8 2.8 0 0 1-5.5.8A2.8 2.8 0 0 1 12 7.8a2.8 2.8 0 0 1-4 0A2.8 2.8 0 0 1 2.5 7z" />
+        <path d="M9.5 20v-5h5v5" />
+      </>
+    ),
+    user: (
+      <>
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </>
+    ),
+    mega: (
+      <>
+        <path d="M3 10v4l14 5V5L3 10z" />
+        <path d="M17 8.5a4 4 0 0 1 0 7" />
+        <path d="M6 15v4" />
+      </>
+    ),
+    pen: (
+      <>
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+      </>
+    ),
+    cpu: (
+      <>
+        <rect x="5" y="5" width="14" height="14" rx="2" />
+        <rect x="9.5" y="9.5" width="5" height="5" />
+        <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
+      </>
+    ),
+    docCheck: (
+      <>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
+        <path d="M14 2v6h6" />
+        <path d="m9 15 2 2 4-4" />
+      </>
+    ),
+    spark: (
+      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+    ),
+  };
+  return (
+    <svg
+      width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    >
+      {paths[name]}
+    </svg>
+  );
+}
+
+/** 三个高频场景卡：点击整段填入输入框——功能性视觉（帮用户一键开始），
+ *  替代原来的轮换 placeholder 示例文字 */
+const SCENARIOS = [
+  {
+    icon: "chat",
+    title: "奶茶店 AI 客服",
+    desc: "自动回微信、查菜单、处理预约",
+    idea: "我想做一个自动回复客户微信消息的 AI 客服，能查菜单、处理预约",
+  },
+  {
+    icon: "book",
+    title: "私人知识库 AI",
+    desc: "上传客户资料，随时查询",
+    idea: "我想做一个私人知识库 AI，上传我的客户资料，随时查询",
+  },
+  {
+    icon: "doc",
+    title: "内部文档问答",
+    desc: "员工快速查公司制度",
+    idea: "给员工做一个内部文档问答 AI，让员工能快速查公司制度",
+  },
+] as const;
+
+/** 三步流程条：告诉用户点下去会发生什么（信任建设，不占地方） */
+const FLOW_STEPS = [
+  { icon: "pen", label: "描述想法" },
+  { icon: "cpu", label: "AI 诊断" },
+  { icon: "docCheck", label: "出方案报价" },
+] as const;
+
+/** 目标人群徽章行（替代纯文字「适合门店/个体户/自媒体」） */
+const AUDIENCE = [
+  { icon: "store", label: "门店" },
+  { icon: "user", label: "个体户" },
+  { icon: "mega", label: "自媒体" },
+] as const;
 
 export default function Home() {
   const router = useRouter();
@@ -38,7 +144,6 @@ export default function Home() {
   const authed = useAuthed(); // 游客可浏览首页介绍，点「开始诊断」才引导注册（数据隔离 #2）
   const [user, setUser] = useState<AuthUser | null>(null);
   const [idea, setIdea] = useState("");
-  const [exampleIdx, setExampleIdx] = useState(0);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,14 +153,6 @@ export default function Home() {
   // 右下角用户菜单：avatar 弹窗（个人信息/退出），替代原右上角角标
   const [menuOpen, setMenuOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-
-  // 目标用户（小店/个人/工作室）不知道写什么 → placeholder 每 4 秒轮换真实场景示例
-  // 用户开始输入（idea 非空）就停，不打扰打字
-  useEffect(() => {
-    if (idea) return;
-    const t = setInterval(() => setExampleIdx((i) => (i + 1) % HOME_EXAMPLES.length), 4000);
-    return () => clearInterval(t);
-  }, [idea]);
 
   // 游客带着想法去注册（账号隔离 #2）：登录回来自动恢复输入，接着走诊断
   useEffect(() => {
@@ -146,9 +243,54 @@ export default function Home() {
       >
         描述你的想法，帮你判断能不能做、多少钱、怎么做
       </h1>
-      <p style={{ color: colors.text.secondary, margin: `0 0 ${space.huge}px`, fontSize: font.md }}>
+      <p style={{ color: colors.text.secondary, margin: `0 0 ${space.xxl}px`, fontSize: font.md }}>
         不用懂代码，只需要讲清楚你想解决什么问题
       </p>
+
+      {/* 场景卡：不知道写什么 → 点一张直接填入（功能性视觉，替代轮换示例文字） */}
+      <div
+        style={{
+          display: "flex", flexWrap: "wrap", justifyContent: "center",
+          gap: space.md, marginBottom: space.xl, textAlign: "left",
+        }}
+      >
+        {SCENARIOS.map((s) => (
+          <button
+            key={s.title}
+            onClick={() => {
+              setIdea(s.idea);
+              if (hint) setHint(null);
+              textareaRef.current?.focus();
+            }}
+            style={{
+              flex: "1 1 30%", minWidth: 200, maxWidth: 260,
+              display: "flex", flexDirection: "column", alignItems: "flex-start", gap: space.sm,
+              padding: `${space.base + 2}px ${space.base + 2}px`,
+              background: colors.bg.surface,
+              border: borderStyle.card, borderRadius: radius.lg,
+              boxShadow: colors.shadow.card,
+              cursor: "pointer", fontFamily: "inherit",
+            }}
+          >
+            <span
+              style={{
+                width: 36, height: 36, borderRadius: radius.md,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: colors.brand.primaryBg, color: colors.brand.linkText,
+                flexShrink: 0,
+              }}
+            >
+              <Icon name={s.icon} size={19} />
+            </span>
+            <span style={{ fontSize: font.base, fontWeight: 600, color: colors.text.primary }}>
+              {s.title}
+            </span>
+            <span style={{ fontSize: font.sm, color: colors.text.secondary, lineHeight: lineHeight.tight }}>
+              {s.desc}
+            </span>
+          </button>
+        ))}
+      </div>
 
       {/* 核心交互区：输入框（其余一切都为它服务） */}
       <textarea
@@ -164,7 +306,7 @@ export default function Home() {
             startDiagnosis();
           }
         }}
-        placeholder={HOME_EXAMPLES[exampleIdx]}
+        placeholder="或在这里直接描述你的想法…"
         rows={3}
         style={{
           display: "block",
@@ -185,16 +327,7 @@ export default function Home() {
         }}
       />
 
-      {/* 一行简介（压缩版，取代原三行 ✅ 勾选文字） */}
-      <p style={{ margin: 0, fontSize: font.sm, color: colors.text.secondary }}>
-        适合门店/个体户/自媒体｜输出完整功能方案+预算评估，无需写代码
-      </p>
-      {/* 温馨提示：全页最弱层级 */}
-      <p style={{ margin: `${space.xs}px 0 ${space.xxl}px`, fontSize: font.xs, color: colors.text.tertiary }}>
-        本工具仅做需求诊断，前期无任何费用
-      </p>
-
-      {/* 主按钮：紫色行动点（饱和度压低一档，hover 浅紫见 .cta-btn） */}
+      {/* 主按钮：主题色行动点，文字前加同色系线性小图标（无 emoji） */}
       <style jsx global>{`
         .cta-btn:not(:disabled):hover { filter: brightness(1.15); }
       `}</style>
@@ -210,7 +343,10 @@ export default function Home() {
           width: "100%",
           maxWidth: 360,
           margin: `0 auto ${space.base}px`,
-          display: "block",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: space.sm,
           background: creating ? colors.muted.bg : colors.brand.primary,
           color: colors.text.inverse,
           border: "none",
@@ -219,8 +355,77 @@ export default function Home() {
           transition: "filter 0.15s ease",
         }}
       >
+        <Icon name="spark" size={19} />
         {creating ? "创建中…" : "生成方案与报价评估"}
       </button>
+
+      {/* 三步流程条：数字圆点 + 细线相连，说明「点下去会发生什么」 */}
+      <div
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          gap: space.sm, margin: `${space.base}px auto ${space.xl}px`,
+        }}
+      >
+        {FLOW_STEPS.map((s, i) => (
+          <span key={s.label} style={{ display: "flex", alignItems: "center", gap: space.sm }}>
+            {i > 0 && (
+              <span
+                aria-hidden="true"
+                style={{ width: 24, height: 1, background: colors.border.default, flexShrink: 0 }}
+              />
+            )}
+            <span style={{ display: "flex", alignItems: "center", gap: space.xs }}>
+              <span
+                style={{
+                  width: 22, height: 22, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: colors.brand.primaryBg, color: colors.brand.linkText,
+                  fontSize: font.xs, fontWeight: 600, flexShrink: 0,
+                }}
+              >
+                {i + 1}
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: font.sm, color: colors.text.secondary }}>
+                <Icon name={s.icon} size={15} />
+                {s.label}
+              </span>
+            </span>
+          </span>
+        ))}
+      </div>
+
+      {/* 目标人群徽章行：小图标 + 文字（替代纯文字「适合门店/个体户/自媒体」） */}
+      <div
+        style={{
+          display: "flex", flexWrap: "wrap", justifyContent: "center",
+          gap: space.sm, marginBottom: space.md,
+        }}
+      >
+        {AUDIENCE.map((a) => (
+          <span
+            key={a.label}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: `${space.xxs + 1}px ${space.md}px`,
+              borderRadius: radius.pill,
+              border: `1px solid ${colors.brand.primaryBorder}`,
+              color: colors.text.secondary, fontSize: font.xs,
+            }}
+          >
+            <span style={{ color: colors.brand.linkText, display: "flex" }}>
+              <Icon name={a.icon} size={13} />
+            </span>
+            {a.label}
+          </span>
+        ))}
+        <span style={{ fontSize: font.xs, color: colors.text.secondary, alignSelf: "center" }}>
+          均可使用｜输出完整功能方案+预算评估
+        </span>
+      </div>
+      {/* 温馨提示：全页最弱层级 */}
+      <p style={{ margin: `0 0 ${space.xxl}px`, fontSize: font.xs, color: colors.text.tertiary }}>
+        本工具仅做需求诊断，前期无任何费用
+      </p>
       {/* 空提交引导：手机上「点了没反应」是最差的体验，必须说话 */}
       {hint && (
         <p style={{ margin: `0 0 ${space.sm}px`, fontSize: font.sm, color: colors.status.danger }}>
