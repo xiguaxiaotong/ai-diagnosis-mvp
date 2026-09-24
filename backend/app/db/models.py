@@ -141,3 +141,42 @@ class PasswordResetToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class Lead(Base):
+    """W7 Day4：方案确认后的对接申请（lead = 销售线索）。
+
+    设计：
+    - project_id 一对一（UNIQUE）：一个项目一条 lead，重复提交 = 覆盖更新。
+      用户改方案后想重新联系时，运营应该看到的是「最新一次」联系方式，
+      而不是把同一项目的多个历史 lead 摊开。
+    - user_id 冗余存一份：项目可能被删（用户手误），但 lead 留着仍可人工跟进。
+    - status：pending 待人工对接 / contacted 已电话沟通 / done 已签约结案。
+      运营手动改，本期不做后端管理界面（M5 之后再说）。
+    - 字段必填：name / phone（核心联系方式，靠电话回访不是邮件）。
+      company / note 选填，但电话回访会问公司，让 phone + company 同时给齐。
+    """
+    __tablename__ = "leads"
+
+    STATUS_PENDING = "pending"
+    STATUS_CONTACTED = "contacted"
+    STATUS_DONE = "done"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        unique=True, index=True,
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    name: Mapped[str] = mapped_column(String(64))
+    phone: Mapped[str] = mapped_column(String(20))
+    company: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default=STATUS_PENDING)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

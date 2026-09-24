@@ -72,6 +72,19 @@ interface Detail {
   } | null;
 }
 
+/** W7 Day4：对接申请（留资） */
+interface Lead {
+  id: number;
+  project_id: number;
+  name: string;
+  phone: string;
+  company: string | null;
+  note: string | null;
+  status: "pending" | "contacted" | "done";
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 const PRIORITY_STYLE = (c: ThemeColors): Record<string, { bg: string; fg: string; text: string }> => ({
   P0: { bg: c.brand.primaryBg, fg: c.brand.primary, text: "P0 核心" },
   P1: { bg: c.status.warningBg, fg: c.status.warning, text: "P1 重要" },
@@ -198,6 +211,13 @@ export default function ProjectPage() {
   const [reviseMode, setReviseMode] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [banner, setBanner] = useState<string | null>(null);
+  // W7 Day4：留资 / 工作台
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [leadLoaded, setLeadLoaded] = useState(false); // 区分「加载中」和「真没有」
+  const [leadForm, setLeadForm] = useState({ name: "", phone: "", company: "", note: "" });
+  const [showLeadForm, setShowLeadForm] = useState(false);
+  const [leadFormErr, setLeadFormErr] = useState<string | null>(null);
+  const [submittingLead, setSubmittingLead] = useState(false);
   // 保存/复制相关
   const planRef = useRef<HTMLDivElement>(null);
   const [saved, setSaved] = useState<string | null>(null); // 「已复制」等即时反馈
@@ -317,6 +337,129 @@ export default function ProjectPage() {
     if (projectId) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // W7 Day4：状态变 confirmed 起加载 lead（plan_generated 不查，避免无谓 404）
+  useEffect(() => {
+    if (!d) return;
+    if (d.status === "confirmed" || d.status === "delivering" || d.status === "done") {
+      api<{ lead: Lead }>(`/api/projects/${projectId}/lead`)
+        .then((r) => setLead(r.lead))
+        .catch(() => undefined) // 404 / 401 等都视为「没留资」
+        .finally(() => setLeadLoaded(true));
+    }
+  }, [d?.status, projectId]);
+
+  async function submitLead() {
+    if (submittingLead) return;
+    setLeadFormErr(null);
+    const name = leadForm.name.trim();
+    const phone = leadForm.phone.trim();
+    if (!name) return setLeadFormErr("请填写姓名");
+    if (!/^\d{11}$/.test(phone)) return setLeadFormErr("手机号必须 11 位数字");
+    setSubmittingLead(true);
+    try {
+      const r = await api<{ lead: Lead; project_status: string; is_new: boolean }>(
+        `/api/projects/${projectId}/lead`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            phone,
+            company: leadForm.company.trim() || undefined,
+            note: leadForm.note.trim() || undefined,
+          }),
+        },
+      );
+      setLead(r.lead);
+      setLeadLoaded(true);
+      setShowLeadForm(false);
+      setLeadForm({ name: "", phone: "", company: "", note: "" });
+      setBanner(r.is_new ? "✓ 方案已确认，专人 24 小时内联系你" : "✓ 联系方式已更新");
+      await load(); // 刷新 d.status → confirmed
+      setTimeout(() => setBanner(null), 4000);
+    } catch (e) {
+      setLeadFormErr(String(e));
+    } finally {
+      setSubmittingLead(false);
+    }
+  }
+
+  // 脱敏展示：手机号 138****0001；姓名保留首字「张*」
+  function maskPhone(p: string): string {
+    return p.length === 11 ? `${p.slice(0, 3)}****${p.slice(6)}` : p;
+  }
+  function maskName(n: string): string {
+    return n.length <= 1 ? n : `${n[0]}${"*".repeat(Math.min(n.length - 1, 3))}`;
+  }
+
+  /** 留资表单（在「下一步」点击或「修改联系方式」时展开）。
+   *  注意：使用 ProjectPage 闭包内的 state，避免抽成组件触发 hooks 重排。 */
+  function renderLeadForm() {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: space.md, width: "100%" }}>
+        <p style={{ margin: 0, fontSize: font.base, color: colors.text.primary, fontWeight: 600 }}>
+          填联系方式，专人 24 小时内联系你
+        </p>
+        <p style={{ margin: 0, fontSize: font.xs, color: colors.text.tertiary }}>
+          提交后方案自动确认；联系时优先用电话，记得保持手机畅通
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: space.md }}>
+          <input
+            value={leadForm.name}
+            onChange={(e) => setLeadForm({ ...leadForm, name: e.target.value })}
+            placeholder="姓名 *"
+            maxLength={64}
+            aria-label="姓名"
+            style={{ padding: `${space.md}px ${space.base}px`, fontSize: font.base, border: borderStyle.input, borderRadius: radius.md, outline: "none" }}
+          />
+          <input
+            value={leadForm.phone}
+            onChange={(e) => setLeadForm({ ...leadForm, phone: e.target.value.replace(/\D/g, "").slice(0, 11) })}
+            placeholder="手机号（11 位）*"
+            inputMode="numeric"
+            maxLength={11}
+            aria-label="手机号"
+            style={{ padding: `${space.md}px ${space.base}px`, fontSize: font.base, border: borderStyle.input, borderRadius: radius.md, outline: "none" }}
+          />
+          <input
+            value={leadForm.company}
+            onChange={(e) => setLeadForm({ ...leadForm, company: e.target.value })}
+            placeholder="公司或团队（选填）"
+            maxLength={128}
+            aria-label="公司或团队"
+            style={{ gridColumn: "1 / span 2", padding: `${space.md}px ${space.base}px`, fontSize: font.base, border: borderStyle.input, borderRadius: radius.md, outline: "none" }}
+          />
+          <textarea
+            value={leadForm.note}
+            onChange={(e) => setLeadForm({ ...leadForm, note: e.target.value })}
+            placeholder="补充需求 / 期望对接时间（选填，500 字内）"
+            maxLength={500}
+            rows={2}
+            aria-label="补充"
+            style={{ gridColumn: "1 / span 2", padding: `${space.md}px ${space.base}px`, fontSize: font.base, border: borderStyle.input, borderRadius: radius.md, outline: "none", resize: "vertical", fontFamily: "inherit" }}
+          />
+        </div>
+        {leadFormErr && (
+          <p style={{ margin: 0, fontSize: font.sm, color: colors.status.danger }}>{leadFormErr}</p>
+        )}
+        <div style={{ display: "flex", gap: space.md, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={submitLead}
+            disabled={submittingLead}
+            style={{ minHeight: touch.large, padding: `${space.md}px ${space.xxl + 6}px`, background: submittingLead ? colors.muted.bg : colors.brand.primary, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, fontWeight: 600, cursor: "pointer" }}
+          >
+            {submittingLead ? "提交中…" : "提交对接申请"}
+          </button>
+          <button
+            onClick={() => { setShowLeadForm(false); setLeadFormErr(null); }}
+            style={{ minHeight: touch.large, padding: `${space.md}px ${space.xl}px`, background: colors.bg.surface, color: colors.text.secondary, border: borderStyle.input, borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   async function confirmAction(action: "confirm" | "revise", fb?: string) {
     if (busy) return;
@@ -751,7 +894,7 @@ export default function ProjectPage() {
         </>
       ))}
 
-      {/* 确认 / 修改操作区 */}
+      {/* 确认 / 修改 / 留资 操作区 */}
       </div>{/* /planRef（截图范围结束，操作栏不入图） */}
       <section className="no-print" style={{
         position: "sticky", bottom: 0, background: colors.bg.surface, borderTop: borderStyle.card,
@@ -759,7 +902,89 @@ export default function ProjectPage() {
         display: "flex", gap: space.md, alignItems: "center", flexWrap: "wrap",
       }}>
         {isFinal ? (
-          <p style={{ margin: 0, fontSize: font.base, color: colors.status.successStrong }}>✓ 方案已确认</p>
+          // === 工作台视图：status >= confirmed ===
+          // 已留资：展示 lead 卡 + 修改 + 回对话；未留资：兜底表单（正常流程不会到这里）
+          !leadLoaded ? (
+            <p style={{ margin: 0, fontSize: font.sm, color: colors.text.secondary }}>加载联系方式中…</p>
+          ) : lead ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: space.md, width: "100%" }}>
+              {/* lead 状态卡 */}
+              <div style={{
+                display: "flex", gap: space.lg, flexWrap: "wrap", alignItems: "center",
+                padding: `${space.base}px ${space.lg}px`,
+                background: colors.status.successBg,
+                border: `1px solid ${colors.status.successBorder}`,
+                borderRadius: radius.md,
+              }}>
+                <span style={{ fontSize: font.lg, color: colors.status.successStrong, fontWeight: 600 }}>
+                  ✓ 方案已确认，专人 24 小时内联系你
+                </span>
+                <span style={{ fontSize: font.sm, color: colors.text.secondary }}>
+                  {maskName(lead.name)} · {maskPhone(lead.phone)}
+                  {lead.company && ` · ${lead.company}`}
+                </span>
+                <span style={{
+                  marginLeft: "auto", fontSize: font.xs, padding: `${space.xxs}px ${space.sm}px`,
+                  borderRadius: radius.pill,
+                  background: lead.status === "done" ? colors.status.successBg :
+                              lead.status === "contacted" ? colors.brand.primaryBg :
+                              colors.status.warningBg,
+                  color: lead.status === "done" ? colors.status.successStrong :
+                         lead.status === "contacted" ? colors.brand.onPrimaryBg :
+                         colors.status.warning,
+                }}>
+                  {lead.status === "pending" ? "待人工对接"
+                    : lead.status === "contacted" ? "沟通中"
+                    : "已签约结案"}
+                </span>
+              </div>
+              {lead.note && (
+                <p style={{ margin: 0, fontSize: font.sm, color: colors.text.secondary, lineHeight: lineHeight.loose }}>
+                  <b style={{ color: colors.text.primary }}>补充：</b>{lead.note}
+                </p>
+              )}
+              {/* 操作按钮 */}
+              <div style={{ display: "flex", gap: space.md, flexWrap: "wrap", alignItems: "center" }}>
+                {!showLeadForm && (
+                  <button
+                    onClick={() => {
+                      setLeadForm({
+                        name: lead.name,
+                        phone: lead.phone,
+                        company: lead.company ?? "",
+                        note: lead.note ?? "",
+                      });
+                      setShowLeadForm(true);
+                    }}
+                    style={{ minHeight: touch.large, padding: `${space.md}px ${space.xl}px`, background: colors.bg.surface, color: colors.brand.linkText, border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
+                  >
+                    修改联系方式
+                  </button>
+                )}
+                <Link
+                  href={`/chat/${d.id}`}
+                  style={{ minHeight: touch.large, padding: `${space.md}px ${space.xl}px`, background: colors.bg.surface, color: colors.text.secondary, border: borderStyle.input, borderRadius: radius.md, fontSize: font.base, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                >
+                  查看诊断对话
+                </Link>
+              </div>
+            </div>
+          ) : (
+            // leadLoaded=true 但 lead=null：兜底（数据库丢了 lead）—— 引导补录
+            <div style={{ display: "flex", flexDirection: "column", gap: space.md, width: "100%" }}>
+              <p style={{ margin: 0, fontSize: font.base, color: colors.status.warning }}>
+                方案已确认，但联系方式未保存，请补录
+              </p>
+              {showLeadForm ? renderLeadForm() : (
+                <button
+                  onClick={() => setShowLeadForm(true)}
+                  style={{ minHeight: touch.large, padding: `${space.md}px ${space.xl + 2}px`, background: colors.brand.primary, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
+                >
+                  补录联系方式
+                </button>
+              )}
+            </div>
+          )
         ) : reviseMode ? (
           <>
             <input
@@ -783,17 +1008,29 @@ export default function ProjectPage() {
               取消
             </button>
           </>
+        ) : showLeadForm && !isFree ? (
+          renderLeadForm()
         ) : (
           <>
-            <button
-              onClick={() => confirmAction("confirm")}
-              disabled={busy}
-              style={{ minHeight: touch.large, padding: `${space.md}px ${space.xxl + 6}px`, background: busy ? colors.muted.bg : colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: space.xs }}
-            >
-              {/* 产品规则 #六：免费试试没有开发交付，确认 = 保存方案结束诊断，不引导进付费流程 */}
-              {isFree ? <Save size={16} strokeWidth={1.5} /> : <Check size={16} strokeWidth={2} />}
-              {isFree ? "保存这份方案" : "确认，对接开发者评估"}
-            </button>
+            {/* 免费思路版：保存方案就够，不引导留资（产品规则 #六） */}
+            {!isFree ? (
+              <button
+                onClick={() => setShowLeadForm(true)}
+                disabled={busy}
+                style={{ minHeight: touch.large, padding: `${space.md}px ${space.xxl + 6}px`, background: busy ? colors.muted.bg : colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: space.xs }}
+              >
+                <Check size={16} strokeWidth={2} />
+                下一步：填联系方式
+              </button>
+            ) : (
+              <button
+                onClick={() => confirmAction("confirm")}
+                disabled={busy}
+                style={{ minHeight: touch.large, padding: `${space.md}px ${space.xxl + 6}px`, background: busy ? colors.muted.bg : colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: space.xs }}
+              >
+                <Save size={16} strokeWidth={1.5} /> 保存这份方案
+              </button>
+            )}
             <button
               onClick={() => setReviseMode(true)}
               disabled={busy}

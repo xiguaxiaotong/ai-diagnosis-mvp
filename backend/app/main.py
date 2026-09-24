@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.api.cases import router as cases_router
 from app.api.diagnosis import router as diagnosis_router
+from app.api.leads import router as leads_router
 from app.config import FRONTEND_ORIGIN
 from app.db.database import get_db, init_db
 from app.db.models import Project
@@ -59,6 +60,8 @@ app.add_middleware(
 app.include_router(diagnosis_router)
 # P2 案例 API（上传/列表/详情/删除）
 app.include_router(cases_router)
+# W7 Day4：方案确认后的对接申请（lead）
+app.include_router(leads_router)
 # Day4 账户系统（注册/登录/会话）
 from app.api.auth import router as auth_router  # noqa: E402
 app.include_router(auth_router)

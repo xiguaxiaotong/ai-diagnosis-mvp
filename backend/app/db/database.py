@@ -18,7 +18,7 @@ init_db() 只剩「跑迁移 + 提供 engine」两个职责，旧的手写 ALTER
     finally:
         db.close()
 """
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import SQLITE_PATH
@@ -29,6 +29,18 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
     echo=False,
 )
+
+
+# W7 Day4：业务运行时开启 SQLite 外键约束。
+# SQLite 默认 FK 是关闭的（PRAGMA foreign_keys = OFF），这会让 schema 里的
+#   ON DELETE SET NULL / ON DELETE CASCADE / ON DELETE RESTRICT 都形同虚设。
+# alembic 内部已自带开关，迁移期不需要管；这里只对应用层连接生效。
+@event.listens_for(engine, "connect")
+def _enable_sqlite_fk(dbapi_conn, _):
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA foreign_keys = ON")
+    cur.close()
+
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
