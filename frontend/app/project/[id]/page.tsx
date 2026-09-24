@@ -80,7 +80,8 @@ interface Lead {
   phone: string;
   company: string | null;
   note: string | null;
-  status: "pending" | "contacted" | "done";
+  // W7 Day5：5 态跟单状态机（与后端 Lead.ALL_STATUSES 一致）
+  status: "pending" | "contacted" | "quoted" | "won" | "closed";
   created_at: string | null;
   updated_at: string | null;
 }
@@ -926,16 +927,22 @@ export default function ProjectPage() {
                 <span style={{
                   marginLeft: "auto", fontSize: font.xs, padding: `${space.xxs}px ${space.sm}px`,
                   borderRadius: radius.pill,
-                  background: lead.status === "done" ? colors.status.successBg :
+                  background: lead.status === "won" ? colors.status.successBg :
                               lead.status === "contacted" ? colors.brand.primaryBg :
-                              colors.status.warningBg,
-                  color: lead.status === "done" ? colors.status.successStrong :
+                              lead.status === "quoted" ? colors.status.warningBg :
+                              lead.status === "closed" ? colors.bg.muted :
+                              colors.status.cautionBg,
+                  color: lead.status === "won" ? colors.status.successStrong :
                          lead.status === "contacted" ? colors.brand.onPrimaryBg :
-                         colors.status.warning,
+                         lead.status === "quoted" ? colors.status.warning :
+                         lead.status === "closed" ? colors.text.tertiary :
+                         colors.status.caution,
                 }}>
-                  {lead.status === "pending" ? "待人工对接"
-                    : lead.status === "contacted" ? "沟通中"
-                    : "已签约结案"}
+                  {lead.status === "pending" ? "待联系"
+                    : lead.status === "contacted" ? "已联系"
+                    : lead.status === "quoted" ? "已报价"
+                    : lead.status === "won" ? "已成交"
+                    : "已关闭"}
                 </span>
               </div>
               {lead.note && (

@@ -50,3 +50,23 @@ FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 BASE_URL = os.getenv("BASE_URL", "http://localhost:3000")
 # 邮件后端：console / tencent / aliyun / smtp。MVP 仅实现 console。
 EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "console")
+
+
+def _parse_admin_user_ids() -> set[int]:
+    """W7 Day5：运营后台白名单。
+    env: ADMIN_USER_IDS=1,2,3
+    默认空集合 = 没人是运营；通过 SQL 查 user.id 后回填即可。
+    """
+    raw = os.getenv("ADMIN_USER_IDS", "").strip()
+    if not raw:
+        return set()
+    out: set[int] = set()
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if tok.isdigit():
+            out.add(int(tok))
+    return out
+
+
+# ---------- W7 Day5：运营后台 admin 白名单 ----------
+ADMIN_USER_IDS: set[int] = _parse_admin_user_ids()

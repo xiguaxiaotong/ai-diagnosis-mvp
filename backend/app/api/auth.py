@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import BASE_URL
+from app.config import ADMIN_USER_IDS, BASE_URL
 from app.db.database import get_db
 from app.db.models import AuthSession, PasswordResetToken, Project, User
 from app.services.email import send_password_reset
@@ -104,13 +104,28 @@ def _create_session(db: Session, user_id: int) -> str:
 
 def _user_payload(user: User) -> dict[str, Any]:
     # is_guest：username 为空 = 游客会话（免登录体验产生），前端据此提示注册
+    # is_admin：W7 Day5；env 白名单 ADMIN_USER_IDS，含则可进 /api/admin/*
     return {
         "id": user.id,
         "username": user.username,
         "name": user.name,
         "email": user.email,
         "is_guest": user.username is None,
+        "is_admin": user.id in ADMIN_USER_IDS,
     }
+
+
+# ---------- W7 Day5：admin 鉴权依赖 ----------
+def require_admin(
+    user: User = Depends(get_current_user),
+) -> User:
+    """运营后台鉴权：仅 ADMIN_USER_IDS 白名单内 user.id 可通过。
+
+    鉴权失败一律 403（区别 401 未登录），且不泄漏白名单内容。
+    """
+    if user.id not in ADMIN_USER_IDS:
+        raise HTTPException(status_code=403, detail="无权限访问运营后台")
+    return user
 
 
 # ---------- 接口 ----------

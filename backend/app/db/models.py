@@ -145,14 +145,21 @@ class PasswordResetToken(Base):
 
 class Lead(Base):
     """W7 Day4：方案确认后的对接申请（lead = 销售线索）。
+    Day5 拓展：跟单状态机细化到 5 态（运营真实需要）。
 
     设计：
     - project_id 一对一（UNIQUE）：一个项目一条 lead，重复提交 = 覆盖更新。
       用户改方案后想重新联系时，运营应该看到的是「最新一次」联系方式，
       而不是把同一项目的多个历史 lead 摊开。
     - user_id 冗余存一份：项目可能被删（用户手误），但 lead 留着仍可人工跟进。
-    - status：pending 待人工对接 / contacted 已电话沟通 / done 已签约结案。
-      运营手动改，本期不做后端管理界面（M5 之后再说）。
+    - status 五态（运营跟单状态机）：
+        pending    待联系  ← 用户提交后默认
+        contacted  已联系  ← 运营首次电话沟通后
+        quoted     已报价  ← 运营发过报价方案后
+        won        已成交  ← 客户签合同
+        closed     已关闭  ← 客户流失 / 长期无意向 / 归档
+      运营手动改；本期只在 admin 后台改；客户端只读。
+      Day4 的 done → closed（迁移 0005），其它值不变。
     - 字段必填：name / phone（核心联系方式，靠电话回访不是邮件）。
       company / note 选填，但电话回访会问公司，让 phone + company 同时给齐。
     """
@@ -160,7 +167,13 @@ class Lead(Base):
 
     STATUS_PENDING = "pending"
     STATUS_CONTACTED = "contacted"
-    STATUS_DONE = "done"
+    STATUS_QUOTED = "quoted"
+    STATUS_WON = "won"
+    STATUS_CLOSED = "closed"
+    # 给 admin 接口用：合法白名单
+    ALL_STATUSES: tuple[str, ...] = (
+        STATUS_PENDING, STATUS_CONTACTED, STATUS_QUOTED, STATUS_WON, STATUS_CLOSED,
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(

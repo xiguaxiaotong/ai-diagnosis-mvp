@@ -4,7 +4,7 @@ import { Search, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, Project } from "../../lib/api";
-import { useRequireAuth } from "../../lib/auth";
+import { useRequireAuth, getUser } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
 import { font, radius, space, touch } from "../../lib/tokens";
 
@@ -98,19 +98,38 @@ export default function ProjectsPage() {
 
   // 顶栏「+ 新建诊断」按钮
   const bannerLink = (
-    <Link
-      href="/"
-      style={{
-        padding: `${space.sm}px ${space.xl}px`,
-        background: colors.brand.primary,
-        color: colors.text.inverse,
-        borderRadius: radius.base,
-        textDecoration: "none",
-        fontSize: font.base,
-      }}
-    >
-      + 新建诊断
-    </Link>
+    <div style={{ display: "flex", gap: space.sm, alignItems: "center" }}>
+      {/* W7 Day5：admin 入口（仅 admin 可见） */}
+      {typeof window !== "undefined" && getUser()?.is_admin === true && (
+        <Link
+          href="/admin/leads"
+          style={{
+            padding: `${space.sm}px ${space.md}px`,
+            background: colors.bg.surface,
+            color: colors.brand.linkText,
+            border: `1px solid ${colors.brand.primary}`,
+            borderRadius: radius.base,
+            textDecoration: "none",
+            fontSize: font.sm,
+          }}
+        >
+          运营后台
+        </Link>
+      )}
+      <Link
+        href="/"
+        style={{
+          padding: `${space.sm}px ${space.xl}px`,
+          background: colors.brand.primary,
+          color: colors.text.inverse,
+          borderRadius: radius.base,
+          textDecoration: "none",
+          fontSize: font.base,
+        }}
+      >
+        + 新建诊断
+      </Link>
+    </div>
   );
 
   return (

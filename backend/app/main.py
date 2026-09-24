@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.admin import router as admin_router
 from app.api.auth import get_current_user
 from app.api.cases import router as cases_router
 from app.api.diagnosis import router as diagnosis_router
@@ -62,6 +63,8 @@ app.include_router(diagnosis_router)
 app.include_router(cases_router)
 # W7 Day4：方案确认后的对接申请（lead）
 app.include_router(leads_router)
+# W7 Day5：最小运营后台（leads 列表 + 改状态）
+app.include_router(admin_router)
 # Day4 账户系统（注册/登录/会话）
 from app.api.auth import router as auth_router  # noqa: E402
 app.include_router(auth_router)

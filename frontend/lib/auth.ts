@@ -14,6 +14,7 @@ export interface AuthUser {
   username: string | null; // 游客会话为 null
   name: string;
   is_guest?: boolean;
+  is_admin?: boolean; // W7 Day5：运营后台白名单（env 决定，前端只读）
 }
 
 export function getToken(): string | null {
