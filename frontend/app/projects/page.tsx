@@ -34,6 +34,12 @@ export default function ProjectsPage() {
 
   // 筛选状态
   const [query, setQuery] = useState("");
+  // W7 Day6：admin 标识走 state（useEffect 里取），不能用 typeof window 直接内联判断——
+  // SSR 端 false / 客户端 true 会导致 hydration mismatch（Next.js 报 Text content does not match）
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    setIsAdmin(getUser()?.is_admin === true);
+  }, []);
   const [activeStatuses, setActiveStatuses] = useState<Set<StatusKey>>(
     new Set(STATUS_FILTERS), // 默认全选 = 不过滤
   );
@@ -99,8 +105,8 @@ export default function ProjectsPage() {
   // 顶栏「+ 新建诊断」按钮
   const bannerLink = (
     <div style={{ display: "flex", gap: space.sm, alignItems: "center" }}>
-      {/* W7 Day5：admin 入口（仅 admin 可见） */}
-      {typeof window !== "undefined" && getUser()?.is_admin === true && (
+      {/* W7 Day5：admin 入口（仅 admin 可见；用 state 避免 hydration mismatch） */}
+      {isAdmin && (
         <Link
           href="/admin/leads"
           style={{

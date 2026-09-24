@@ -9,9 +9,9 @@
 - lead_notes     跟进记录（Day6；运营手动记录 + 状态变更自动写 system 类型）
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -114,15 +114,43 @@ class Conversation(Base):
 
 
 class Case(Base):
+    """案例（历史项目知识库条目）。
+
+    两类来源共用一张表：
+    - 管理端上传文档（Week4）：只填基础字段，正文走 file_path 文档
+    - CSV 种子导入（W7 Day6）：补齐结构化报价字段（scenario/budget_*/…），
+      供检索召回 + 方案生成时参考报价档位
+
+    review_status 是「待核验 / 已核验」的数据质量口径，别和未来案例上下架状态混用。
+    """
     __tablename__ = "cases"
+
+    # W7 Day6：审核状态（数据核验口径，非上下架）
+    REVIEW_PENDING = "pending"    # 待核验
+    REVIEW_VERIFIED = "verified"  # 已核验
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(128))
     industry: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     file_path: Mapped[str | None] = mapped_column(String(256), nullable=True)  # 原始文档路径
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # 脱敏摘要
-    vector_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Chroma 中向量 id
+    vector_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 向量库 doc_id 前缀
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # ---------- W7 Day6：CSV 种子案例结构化字段 ----------
+    scenario: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # 场景
+    features: Mapped[str | None] = mapped_column(Text, nullable=True)  # 功能清单（顿号/分号分隔）
+    tech_stack: Mapped[str | None] = mapped_column(Text, nullable=True)  # 技术栈
+    budget_min: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 预算下限（元）
+    budget_max: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 预算上限（元）
+    duration_weeks: Mapped[str | None] = mapped_column(String(16), nullable=True)  # 工期（"1-2" 区间串）
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)  # 来源链接
+    source_type: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 来源类型
+    collected_at: Mapped[date | None] = mapped_column(Date, nullable=True)  # 采集时间
+    data_quality: Mapped[str | None] = mapped_column(String(128), nullable=True)  # 数据口径说明
+    review_status: Mapped[str] = mapped_column(
+        String(16), default=REVIEW_PENDING, server_default=REVIEW_PENDING,
+    )  # 审核状态：pending 待核验 / verified 已核验
 
 
 class PasswordResetToken(Base):

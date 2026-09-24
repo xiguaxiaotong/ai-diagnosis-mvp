@@ -22,7 +22,7 @@ def case_vector_prefix(case_id: int) -> str:
 
 def create_case_from_file(db: Session, file_path: str | Path, title: str,
                           industry: str | None = None) -> Case:
-    """上传文件 → 切分入库（Chroma）→ 元数据落库（SQLite）。
+    """上传文件 → 切分入库（向量库）→ 元数据落库（SQLite）。
 
     顺序：先建 DB 行拿 id，再以 case-{id} 为 doc_id 入向量库，最后回填 vector_id。
     """
@@ -52,6 +52,109 @@ def create_case_from_file(db: Session, file_path: str | Path, title: str,
         db.commit()
         raise
     return case
+
+
+def upsert_case_structured(db: Session, *, title: str, body: str,
+                           file_path: str | Path,
+                           industry: str | None = None,
+                           scenario: str | None = None,
+                           features: str | None = None,
+                           tech_stack: str | None = None,
+                           budget_min: int | None = None,
+                           budget_max: int | None = None,
+                           duration_weeks: str | None = None,
+                           source_url: str | None = None,
+                           source_type: str | None = None,
+                           collected_at=None,
+                           data_quality: str | None = None,
+                           review_status: str = Case.REVIEW_PENDING,
+                           ) -> tuple[Case, bool]:
+    """W7 Day6：CSV 种子案例 upsert（幂等，可重复跑）。
+
+    与 create_case_from_file 的区别：
+    - 按 title 判重：已存在则更新（结构化字段 + 重新向量化），不重复插入
+    - 带 W7 Day6 新增的结构化报价字段（scenario / budget_* / …）
+
+    更新时先 delete_by_doc 清旧 chunk 再重嵌入：
+    ingest_file 按 chunk id 覆盖，但新版 chunk 数变少时旧尾巴会残留，必须先删。
+
+    返回 (case, created)。向量入库失败时：新建行回滚删除；更新行回滚字段改动。
+    """
+    p = Path(file_path)
+    case = db.query(Case).filter(Case.title == title).first()
+    created = case is None
+    if created:
+        case = Case(title=title)
+        db.add(case)
+        db.commit()
+        db.refresh(case)
+
+    prefix = case_vector_prefix(case.id)
+    try:
+        store = get_vector_store()
+        store.delete_by_doc(prefix)  # 清旧 chunk（含首次导入时的空操作）
+        n_chunks = ingest_file(p, store, metadata={
+            "industry": industry or "",
+            "case_db_id": case.id,
+        }, doc_id=prefix)
+        case.industry = industry
+        case.file_path = str(p)
+        case.summary = body[:120]
+        case.scenario = scenario
+        case.features = features
+        case.tech_stack = tech_stack
+        case.budget_min = budget_min
+        case.budget_max = budget_max
+        case.duration_weeks = duration_weeks
+        case.source_url = source_url
+        case.source_type = source_type
+        case.collected_at = collected_at
+        case.data_quality = data_quality
+        case.review_status = review_status
+        case.vector_id = prefix
+        db.commit()
+        logger.info("案例 %s %s: %d chunks", prefix,
+                    "新建" if created else "更新", n_chunks)
+    except Exception:
+        db.rollback()
+        if created:
+            db.delete(case)
+            db.commit()
+        raise
+    return case, created
+
+
+def backfill_vectors(db: Session) -> int:
+    """W7 Day6：补齐向量库缺失的案例向量（幂等，可重复跑）。
+
+    背景：本地 dev 库是 Chroma 时代种子导入的（向量存 chroma.sqlite3），
+    切 numpy+JSON 持久化后只重导了服务器，本地旧 20 条 case.vector_id 指向
+    numpy 库里不存在的 chunk → 检索永远召回不到。
+
+    通用价值：向量文件损坏 / 误删后按 file_path 原文件重嵌入，DB 字段不动。
+    判断标准：store 里查不到 {vector_id}#0 chunk 且源文件存在 → 重嵌入。
+    """
+    store = get_vector_store()
+    restored = 0
+    for case in db.query(Case).all():
+        if not case.vector_id:
+            case.vector_id = case_vector_prefix(case.id)
+        if store.get(f"{case.vector_id}#0") is not None:
+            continue  # 向量在，跳过
+        path = Path(case.file_path) if case.file_path else None
+        if not path or not path.exists():
+            logger.warning("案例 %s 向量缺失且源文件不存在，跳过: %s",
+                           case.id, case.file_path)
+            continue
+        store.delete_by_doc(case.vector_id)  # 清可能残留的半截 chunk
+        ingest_file(path, store, metadata={
+            "industry": case.industry or "",
+            "case_db_id": case.id,
+        }, doc_id=case.vector_id)
+        db.commit()
+        restored += 1
+        logger.info("案例 %s 向量已重建: %s", case.vector_id, case.title)
+    return restored
 
 
 def list_cases(db: Session, limit: int = 50) -> list[Case]:
