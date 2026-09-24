@@ -151,10 +151,60 @@ export default function AdminLeadsPage() {
           alignItems: "center",
           gap: space.sm,
           marginBottom: space.lg,
+          flexWrap: "wrap",
         }}
       >
         <ShieldCheck size={22} color={colors.brand.primary} />
         <h1 style={{ margin: 0, fontSize: font.xl }}>运营后台 · Leads 跟进</h1>
+        <a
+          href={`${(typeof window !== "undefined" && (window as any).__API_BASE) || "http://localhost:8000"}/api/admin/leads/export.csv` +
+            (activeStatuses.size > 0 && activeStatuses.size < STATUS_OPTIONS.length
+              ? "?status=" + Array.from(activeStatuses).join(",")
+              : "")}
+          download
+          onClick={async (e) => {
+            // 浏览器同源策略：dev 跨端口 → 用 fetch + Blob 触发下载
+            e.preventDefault();
+            const params = new URLSearchParams();
+            if (activeStatuses.size > 0 && activeStatuses.size < STATUS_OPTIONS.length) {
+              params.set("status", Array.from(activeStatuses).join(","));
+            }
+            const qs = params.toString();
+            const token = typeof window !== "undefined" ? localStorage.getItem("diag_token") : null;
+            const r = await fetch(`http://localhost:8000/api/admin/leads/export.csv${qs ? "?" + qs : ""}`, {
+              headers: token ? { Authorization: "Bearer " + token } : {},
+            });
+            if (!r.ok) {
+              alert("导出失败 HTTP " + r.status);
+              return;
+            }
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            const cd = r.headers.get("Content-Disposition") || "";
+            const m = cd.match(/filename="?([^"]+)"?/);
+            a.download = m ? m[1] : "leads.csv";
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: space.xs,
+            marginLeft: "auto",
+            padding: `${space.sm}px ${space.md}px`,
+            background: colors.brand.primary,
+            color: colors.text.inverse,
+            borderRadius: radius.md,
+            textDecoration: "none",
+            fontSize: font.sm,
+            fontWeight: 600,
+            minHeight: touch.base,
+          }}
+        >
+          ↓ 导出 CSV
+        </a>
       </header>
 
       {/* 筛选条 */}
@@ -299,7 +349,12 @@ export default function AdminLeadsPage() {
               }}
             >
               <div style={{ fontWeight: 600 }}>
-                {l.name}
+                <Link
+                  href={`/admin/leads/${l.id}`}
+                  style={{ color: colors.brand.linkText, textDecoration: "none" }}
+                >
+                  {l.name}
+                </Link>
                 {l.company && (
                   <div style={{ fontSize: font.sm, fontWeight: 400, color: colors.text.secondary }}>
                     {l.company}

@@ -1,10 +1,12 @@
 """P10 数据层：表定义（SQLAlchemy 2.0 风格）。
 
-4 张表：
+5 张表：
 - users          用户（需求方，MVP 阶段匿名也可用）
 - projects       项目（一次诊断 = 一个项目，方案/预算挂在这里）
 - conversations  对话消息（诊断过程的多轮对话记录）
 - cases          案例（脱敏入库的历史项目，关联 Chroma 向量 id）
+- leads          留资（Day4；方案确认后的对接申请，含 5 态跟单状态机 Day5）
+- lead_notes     跟进记录（Day6；运营手动记录 + 状态变更自动写 system 类型）
 """
 
 from datetime import datetime
@@ -193,3 +195,42 @@ class Lead(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+    notes: Mapped[list["LeadNote"]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan",
+    )
+
+
+class LeadNote(Base):
+    """W7 Day6：leads 跟进记录 / 时间线。
+
+    三种 note_type：
+    - manual    运营手动写的跟进（电话沟通要点 / 微信加好友 / 客户反馈等）
+    - status_change  系统自动写（运营改 status 时落地，方便回溯「何时改成 won」）
+    - system    系统事件（如「用户重新提交联系方式，status 重置 pending」）
+
+    关联：
+    - lead_id FK CASCADE：lead 删了 → 笔记一起删（不留孤儿）
+    - admin_id FK SET NULL：admin 账号被删 → 笔记保留为 NULL（谁写的可追溯丢失，但内容不丢）
+    """
+    __tablename__ = "lead_notes"
+
+    NOTE_MANUAL = "manual"
+    NOTE_STATUS_CHANGE = "status_change"
+    NOTE_SYSTEM = "system"
+    ALL_NOTE_TYPES: tuple[str, ...] = (NOTE_MANUAL, NOTE_STATUS_CHANGE, NOTE_SYSTEM)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True,
+    )
+    admin_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    note_type: Mapped[str] = mapped_column(String(16), default=NOTE_MANUAL)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(),
+    )
+
+    lead: Mapped["Lead"] = relationship(back_populates="notes")
