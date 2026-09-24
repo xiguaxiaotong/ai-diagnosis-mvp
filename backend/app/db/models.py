@@ -24,6 +24,10 @@ class User(Base):
     # pbkdf2_sha256$迭代$salt$hash（标准库哈希，无新依赖）
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     name: Mapped[str] = mapped_column(String(64), default="匿名用户")
+    # W7 Day2：邮箱（重置密码发到邮箱、个人中心可换绑）。
+    #   注册时不收 → nullable；后续补录鼓励但不强求。
+    #   唯一性：unique=True 给 DB 兜底，应用层也会先查再写。
+    email: Mapped[str | None] = mapped_column(String(120), unique=True, nullable=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -116,4 +120,24 @@ class Case(Base):
     file_path: Mapped[str | None] = mapped_column(String(256), nullable=True)  # 原始文档路径
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # 脱敏摘要
     vector_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # Chroma 中向量 id
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class PasswordResetToken(Base):
+    """W7 Day1：邮箱重置密码令牌。
+
+    设计：
+    - token：URL-safe 32 字节随机串（与 AuthSession 同规格）
+    - user_id：FK → users（用户被删 → 令牌一起删，避免孤儿）
+    - expires_at：30 分钟过期（业内主流，比 1h 更安全；超期 = 失效）
+    - used_at：NULL = 未用；改密成功后置位 = 单次性，已用 token 不可再消费
+    """
+    __tablename__ = "password_reset_tokens"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

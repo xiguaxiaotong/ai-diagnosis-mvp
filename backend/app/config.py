@@ -43,3 +43,10 @@ BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
 
 # 前端来源（CORS）
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+
+# ---------- W7 Day1：密码重置 / 邮件 ----------
+# BASE_URL：所有邮件链接的前缀（重置密码、邀请等统一来源）
+#   本地 dev 默认 http://localhost:3000；云上改为公网域名 + HTTPS
+BASE_URL = os.getenv("BASE_URL", "http://localhost:3000")
+# 邮件后端：console / tencent / aliyun / smtp。MVP 仅实现 console。
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "console")

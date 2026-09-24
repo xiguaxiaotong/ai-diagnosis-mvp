@@ -218,6 +218,46 @@ export default function Home() {
         不用懂代码，只需要讲清楚你想解决什么问题
       </p>
 
+      {/* W7 Day1 游客顶部轻提示（建议 A）：
+          游客身份下首页顶部给一条轻提示，告诉用户「这是临时身份」+ 一键去注册。
+          点击提示 → stashGuestToken + 跳登录页（带 next 回到首页）→ 登录成功后
+          自动 claim 游客名下项目（login 页已有的逻辑，无需重复）。 */}
+      {authed && isGuest() && (
+        <div
+          style={{
+            maxWidth: 640, margin: `0 auto ${space.lg}px`,
+            display: "flex", alignItems: "center", gap: space.md,
+            padding: `${space.md}px ${space.lg}px`,
+            background: colors.brand.primaryBg,
+            border: `1px solid ${colors.brand.primaryBorder}`,
+            borderRadius: radius.md,
+            fontSize: font.sm, color: colors.text.primary,
+            textAlign: "left",
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            游客模式：方案临时保存在本机，<strong>注册后永久保留</strong>。
+          </span>
+          <button
+            onClick={() => {
+              stashGuestToken();
+              router.push(`/login?next=${encodeURIComponent("/")}`);
+            }}
+            style={{
+              flexShrink: 0,
+              minHeight: touch.small,
+              padding: `0 ${space.md}px`,
+              background: colors.brand.primary,
+              color: colors.text.inverse,
+              border: "none", borderRadius: radius.sm,
+              fontSize: font.sm, fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            去注册
+          </button>
+        </div>
+      )}
+
       {/* 场景卡：不知道写什么 → 点一张直接填入（功能性视觉，替代轮换示例文字）
           桌面端：三列竖排大卡；手机端（≤640px）：一行三列迷你卡（总高 ≤80px），
           图标去色块缩至 20px、描述隐藏、标题 12px 不换行——输入框必须留在首屏。

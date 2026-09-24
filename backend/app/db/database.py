@@ -1,5 +1,8 @@
 """P10 数据层：SQLite 连接与会话管理。
 
+W7 Day1 改：建表/改表统一走 alembic upgrade head。
+init_db() 只剩「跑迁移 + 提供 engine」两个职责，旧的手写 ALTER 全部废弃。
+
 用法（FastAPI 依赖注入）：
     from app.db.database import get_db
 
@@ -15,7 +18,6 @@
     finally:
         db.close()
 """
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -36,39 +38,29 @@ class Base(DeclarativeBase):
 
 
 def init_db() -> None:
-    """建表（已存在则跳过）。导入 models 以确保表定义已注册。
+    """W7 Day1：所有表结构变更统一走 alembic，本函数只负责「跑迁移到 head」。
 
-    SQLite 的 CREATE TABLE 不会给已存在的表加列，新增列在这里做轻量迁移
-    （PRAGMA 查列 → 缺则 ALTER TABLE ADD COLUMN）。
+    旧的手写 PRAGMA + ALTER TABLE 已废弃（迁移历史已写入 alembic/versions/0001_baseline）。
     """
-    from app.db import models  # noqa: F401
+    from pathlib import Path
 
     SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(bind=engine)
 
-    # 轻量列迁移：projects.req_profile（结构化实体记忆）
-    with engine.connect() as conn:
-        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(projects)")}
-        if "req_profile" not in cols:
-            conn.exec_driver_sql("ALTER TABLE projects ADD COLUMN req_profile TEXT")
-            conn.commit()
+    # 不管从哪里启动（uvicorn / pytest / 脚本），用绝对路径喂 alembic，避免
+    # uvicorn 注入的 sys.path / cwd 把相对路径带偏
+    backend_dir = Path(__file__).resolve().parent.parent.parent  # backend/app/db → backend
+    if not (backend_dir / "alembic.ini").exists():
+        # 兜底：如果 alembic 没起跑（极少见），退回旧行为
+        from app.db import models  # noqa: F401
+        Base.metadata.create_all(bind=engine)
+        return
 
-    # Day4 账户系统迁移：users.username / users.password_hash
-    with engine.connect() as conn:
-        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(users)")}
-        if "username" not in cols:
-            conn.exec_driver_sql("ALTER TABLE users ADD COLUMN username VARCHAR(64)")
-            conn.commit()
-        if "password_hash" not in cols:
-            conn.exec_driver_sql("ALTER TABLE users ADD COLUMN password_hash VARCHAR(256)")
-            conn.commit()
+    from alembic import command
+    from alembic.config import Config
 
-    # 方案分享迁移：projects.share_token（NULL = 未开启公开分享）
-    with engine.connect() as conn:
-        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(projects)")}
-        if "share_token" not in cols:
-            conn.exec_driver_sql("ALTER TABLE projects ADD COLUMN share_token VARCHAR(64)")
-            conn.commit()
+    cfg = Config(str(backend_dir / "alembic.ini"))
+    cfg.set_main_option("script_location", str(backend_dir / "alembic"))
+    command.upgrade(cfg, "head")
 
 
 def get_db():

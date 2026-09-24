@@ -13,6 +13,7 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9        # multipart 表单（案例上传接口）
 sqlalchemy>=2.0.0
+alembic>=1.13.0                # W7 Day1：模型变更必出迁移；当前 SQLite 留 baseline，未来切 Postgres 零成本
 pydantic>=2.0.0
 python-dotenv>=1.0.0
 

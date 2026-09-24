@@ -29,6 +29,12 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  // W7 Day1：忘记密码子状态机
+  // - 'login' 默认登录表单
+  // - 'forgot' 输入用户名提交「忘记密码」，显示「已发送邮件」提示
+  type Stage = "login" | "forgot" | "forgot-sent";
+  const [stage, setStage] = useState<Stage>("login");
+
   useRedirectIfAuthed();
 
   async function submit() {
@@ -76,6 +82,27 @@ function LoginForm() {
     }
   }
 
+  async function submitForgot() {
+    const u = username.trim();
+    if (u.length < 2) { setError("请输入你的用户名"); return; }
+    setBusy(true); setError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { setError(data.detail ?? "请求失败，请重试"); return; }
+      // 不论用户名是否存在都返回 200（防枚举），但前端只在确实拿到 ok 时切到「已发送」
+      setStage("forgot-sent");
+    } catch {
+      setError("网络异常，请检查网络后重试");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const inputStyle = {
     width: "100%",
     minHeight: touch.large,
@@ -91,51 +118,74 @@ function LoginForm() {
   return (
     <main style={{ maxWidth: 400, margin: `${space.pageTop}px auto`, padding: `0 ${space.xl}px` }}>
       <h1 style={{ textAlign: "center" }}>
-        {mode === "login" ? "登录" : "注册"}
+        {stage === "forgot" || stage === "forgot-sent"
+          ? "找回密码"
+          : mode === "login" ? "登录" : "注册"}
       </h1>
       <p style={{ color: colors.text.secondary, fontSize: font.sm, textAlign: "center", marginTop: 0 }}>
-        {mode === "login" ? "登录后继续你的项目" : "创建账户，方案和项目只属于你"}
+        {stage === "forgot"
+          ? "输入用户名，我们会发送重置链接"
+          : stage === "forgot-sent"
+            ? "请查收邮箱，按邮件里的链接完成重置"
+            : mode === "login" ? "登录后继续你的项目" : "创建账户，方案和项目只属于你"}
       </p>
 
-      {/* 登录 / 注册切换 */}
-      <div style={{
-        display: "flex", gap: space.sm, marginBottom: space.xl,
-        background: colors.bg.muted, borderRadius: radius.md, padding: space.xs,
-      }}>
-        {(["login", "register"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => { setMode(m); setError(null); }}
-            style={{
-              flex: 1, minHeight: touch.small,
-              background: mode === m ? colors.brand.primary : "transparent",
-              color: mode === m ? colors.text.inverse : colors.text.secondary,
-              border: "none", borderRadius: radius.sm,
-              fontSize: font.base, cursor: "pointer",
-            }}
-          >
-            {m === "login" ? "登录" : "注册"}
-          </button>
-        ))}
-      </div>
+      {/* 登录 / 注册切换（忘记密码时不显示） */}
+      {stage === "login" && (
+        <div style={{
+          display: "flex", gap: space.sm, marginBottom: space.xl,
+          background: colors.bg.muted, borderRadius: radius.md, padding: space.xs,
+        }}>
+          {(["login", "register"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => { setMode(m); setError(null); }}
+              style={{
+                flex: 1, minHeight: touch.small,
+                background: mode === m ? colors.brand.primary : "transparent",
+                color: mode === m ? colors.text.inverse : colors.text.secondary,
+                border: "none", borderRadius: radius.sm,
+                fontSize: font.base, cursor: "pointer",
+              }}
+            >
+              {m === "login" ? "登录" : "注册"}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: space.md }}>
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="用户名（2-32 个字符）"
-          autoComplete="username"
-          style={inputStyle}
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-          placeholder="密码（至少 6 位）"
-          autoComplete={mode === "login" ? "current-password" : "new-password"}
-          style={inputStyle}
-        />
+        {/* 忘记密码流程：只显示一个用户名输入框 */}
+        {(stage === "forgot" || stage === "forgot-sent") ? (
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && stage === "forgot") submitForgot(); }}
+            placeholder="用户名"
+            autoComplete="username"
+            disabled={stage === "forgot-sent"}
+            style={inputStyle}
+          />
+        ) : (
+          <>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="用户名（2-32 个字符）"
+              autoComplete="username"
+              style={inputStyle}
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              placeholder="密码（至少 6 位）"
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              style={inputStyle}
+            />
+          </>
+        )}
 
         {error && (
           <p style={{
@@ -156,20 +206,85 @@ function LoginForm() {
           </p>
         )}
 
-        <button
-          onClick={submit}
-          disabled={busy}
-          style={{
-            minHeight: touch.large,
-            background: busy ? colors.muted.bg : colors.brand.primary,
-            color: colors.text.inverse,
-            border: "none", borderRadius: radius.md,
-            fontSize: font.base, fontWeight: 600, cursor: busy ? "wait" : "pointer",
-            marginTop: space.sm,
-          }}
-        >
-          {busy ? "请稍候…" : mode === "login" ? "登录" : "注册并登录"}
-        </button>
+        {/* 主按钮：按 stage 走不同动作 */}
+        {stage === "forgot" ? (
+          <button
+            onClick={submitForgot}
+            disabled={busy}
+            style={{
+              minHeight: touch.large,
+              background: busy ? colors.muted.bg : colors.brand.primary,
+              color: colors.text.inverse,
+              border: "none", borderRadius: radius.md,
+              fontSize: font.base, fontWeight: 600,
+              cursor: busy ? "wait" : "pointer",
+              marginTop: space.sm,
+            }}
+          >
+            {busy ? "请稍候…" : "发送重置链接"}
+          </button>
+        ) : stage === "forgot-sent" ? (
+          <button
+            onClick={() => { setStage("login"); setError(null); }}
+            style={{
+              minHeight: touch.large,
+              background: colors.brand.primary,
+              color: colors.text.inverse,
+              border: "none", borderRadius: radius.md,
+              fontSize: font.base, fontWeight: 600,
+              cursor: "pointer", marginTop: space.sm,
+            }}
+          >
+            返回登录
+          </button>
+        ) : (
+          <button
+            onClick={submit}
+            disabled={busy}
+            style={{
+              minHeight: touch.large,
+              background: busy ? colors.muted.bg : colors.brand.primary,
+              color: colors.text.inverse,
+              border: "none", borderRadius: radius.md,
+              fontSize: font.base, fontWeight: 600, cursor: busy ? "wait" : "pointer",
+              marginTop: space.sm,
+            }}
+          >
+            {busy ? "请稍候…" : mode === "login" ? "登录" : "注册并登录"}
+          </button>
+        )}
+
+        {/* 副按钮：登录态下显示「忘记密码」入口；忘记密码态下显示「返回登录」 */}
+        {stage === "login" && (
+          <button
+            onClick={() => { setStage("forgot"); setError(null); }}
+            style={{
+              minHeight: touch.small,
+              background: "transparent",
+              color: colors.brand.linkText,
+              border: "none",
+              fontSize: font.sm, cursor: "pointer",
+              marginTop: space.xs,
+            }}
+          >
+            忘记密码？
+          </button>
+        )}
+        {stage === "forgot" && (
+          <button
+            onClick={() => { setStage("login"); setError(null); }}
+            style={{
+              minHeight: touch.small,
+              background: "transparent",
+              color: colors.text.tertiary,
+              border: "none",
+              fontSize: font.sm, cursor: "pointer",
+              marginTop: space.xs,
+            }}
+          >
+            ← 返回登录
+          </button>
+        )}
       </div>
 
       <p style={{

@@ -24,7 +24,7 @@ def setup_logging(level: int = logging.INFO) -> None:
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(fmt)
-    for name in ("app", "app.infra", "app.infra.model_client"):
+    for name in ("app", "app.infra", "app.infra.model_client", "app.services"):
         lg = logging.getLogger(name)
         lg.setLevel(level)
         if not lg.handlers:
