@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { StyledJsx } from "./styled-jsx";
 import { ThemeProvider } from "../lib/theme";
 import { THEMES } from "../lib/tokens";
 
@@ -60,7 +61,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           }
           button:not(:disabled):active { filter: brightness(var(--btn-press-bright, 0.85)); }
         ` }} />
-        <ThemeProvider>{children}</ThemeProvider>
+        {/* styled-jsx 注册器：App Router 下没有它，<style jsx> 不会进 SSR HTML，
+            样式要等 hydration 后才生效（手机首帧会闪布局）。包一层即可服务端直出。 */}
+        <StyledJsx>
+          <ThemeProvider>{children}</ThemeProvider>
+        </StyledJsx>
       </body>
     </html>
   );
