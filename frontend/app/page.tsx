@@ -25,80 +25,29 @@ function menuItemStyle(
   };
 }
 
-/** 单色线性 SVG 图标：stroke=currentColor 跟随主题文字色/主题色，
- *  统一线条粗细与圆角端点——全站只用这一套，不引入 emoji/彩色图标 */
-function Icon({ name, size = 18 }: { name: string; size?: number }) {
-  const paths: Record<string, React.ReactNode> = {
-    chat: (
-      <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.4-4.1-1L4 20l1-4.4A8.5 8.5 0 1 1 21 11.5z" />
-    ),
-    book: (
-      <>
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" />
-        <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
-      </>
-    ),
-    doc: (
-      <>
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
-        <path d="M14 2v6h6" />
-        <circle cx="11" cy="13.5" r="2.5" />
-        <path d="m12.8 15.3 2.2 2.2" />
-      </>
-    ),
-    store: (
-      <>
-        <path d="M4 10v10h16V10" />
-        <path d="M2.5 7 4 3h16l1.5 4a2.8 2.8 0 0 1-5.5.8A2.8 2.8 0 0 1 12 7.8a2.8 2.8 0 0 1-4 0A2.8 2.8 0 0 1 2.5 7z" />
-        <path d="M9.5 20v-5h5v5" />
-      </>
-    ),
-    user: (
-      <>
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </>
-    ),
-    mega: (
-      <>
-        <path d="M3 10v4l14 5V5L3 10z" />
-        <path d="M17 8.5a4 4 0 0 1 0 7" />
-        <path d="M6 15v4" />
-      </>
-    ),
-    pen: (
-      <>
-        <path d="M12 20h9" />
-        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-      </>
-    ),
-    cpu: (
-      <>
-        <rect x="5" y="5" width="14" height="14" rx="2" />
-        <rect x="9.5" y="9.5" width="5" height="5" />
-        <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
-      </>
-    ),
-    docCheck: (
-      <>
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
-        <path d="M14 2v6h6" />
-        <path d="m9 15 2 2 4-4" />
-      </>
-    ),
-    spark: (
-      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
-    ),
-  };
-  return (
-    <svg
-      width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-    >
-      {paths[name]}
-    </svg>
-  );
+/** 全站唯一图标来源：Lucide 线性图标（统一 strokeWidth=1.5、按需尺寸），
+ *  禁止再混入手绘 SVG / emoji / 彩色图标 */
+import {
+  BookOpen, Bot, FileCheck2, FileSearch, Megaphone, MessageCircle,
+  PenLine, Sparkles, Store, User as UserIcon,
+} from "lucide-react";
+
+const ICONS = {
+  chat: MessageCircle,
+  book: BookOpen,
+  doc: FileSearch,
+  store: Store,
+  user: UserIcon,
+  mega: Megaphone,
+  pen: PenLine,
+  cpu: Bot,
+  docCheck: FileCheck2,
+  spark: Sparkles,
+} as const;
+
+function Icon({ name, size = 18 }: { name: keyof typeof ICONS; size?: number }) {
+  const C = ICONS[name];
+  return <C size={size} strokeWidth={1.5} aria-hidden />;
 }
 
 /** 三个高频场景卡：点击整段填入输入框——功能性视觉（帮用户一键开始），
@@ -188,7 +137,7 @@ export default function Home() {
     // 空输入 / 后端未连接不再静默拦截：给出明确提示 + 聚焦输入框，
     // 让用户知道「点了没反应」其实是缺了什么（移动端尤其重要）
     if (!text) {
-      setHint("请先用一两句话描述你想解决的问题，再来生成方案和报价 👇");
+      setHint("请先用一两句话描述你想解决的问题，再来生成方案和报价");
       textareaRef.current?.focus();
       return;
     }
@@ -235,10 +184,13 @@ export default function Home() {
       <h1
         style={{
           fontSize: fontFluid.hero,
-          margin: `0 0 ${space.base}px`,
-          fontWeight: 700, // 页面最强：白色粗体
+          // maxWidth + balance：宽屏下两行优雅均衡断行，不出现笨拙的孤词
+          maxWidth: 640,
+          margin: `0 auto ${space.base}px`,
+          fontWeight: 700,
           letterSpacing: 1,
           lineHeight: 1.3,
+          textWrap: "balance",
         }}
       >
         描述你的想法，帮你判断能不能做、多少钱、怎么做
@@ -319,7 +271,6 @@ export default function Home() {
           background: colors.bg.surface,
           border: hint ? `2px solid ${colors.status.danger}` : borderStyle.input,
           borderRadius: radius.lg,
-          boxShadow: colors.shadow.card,
           resize: "vertical",
           outline: "none",
           fontFamily: "inherit",
@@ -342,7 +293,7 @@ export default function Home() {
           minHeight: touch.cta,
           width: "100%",
           maxWidth: 360,
-          margin: `0 auto ${space.base}px`,
+          margin: `0 auto ${space.xl}px`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -350,7 +301,7 @@ export default function Home() {
           background: creating ? colors.muted.bg : colors.brand.primary,
           color: colors.text.inverse,
           border: "none",
-          borderRadius: radius.lg,
+          borderRadius: radius.md,
           cursor: creating ? "not-allowed" : "pointer",
           transition: "filter 0.15s ease",
         }}
@@ -398,15 +349,15 @@ export default function Home() {
       <div
         style={{
           display: "flex", flexWrap: "wrap", justifyContent: "center",
-          gap: space.sm, marginBottom: space.md,
+          gap: space.sm, marginBottom: space.base,
         }}
       >
         {AUDIENCE.map((a) => (
           <span
             key={a.label}
             style={{
-              display: "inline-flex", alignItems: "center", gap: 5,
-              padding: `${space.xxs + 1}px ${space.md}px`,
+              display: "inline-flex", alignItems: "center", gap: space.xs,
+              padding: `${space.xxs}px ${space.md}px`,
               borderRadius: radius.pill,
               border: `1px solid ${colors.brand.primaryBorder}`,
               color: colors.text.secondary, fontSize: font.xs,
@@ -490,7 +441,7 @@ export default function Home() {
                   border: borderStyle.card,
                   borderRadius: radius.lg,
                   padding: space.md,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                  boxShadow: colors.shadow.float,
                 }}
               >
                 {/* 菜单头部：当前登录人 */}
@@ -501,7 +452,9 @@ export default function Home() {
                     borderBottom: borderStyle.row,
                   }}
                 >
-                  <span style={{ fontSize: font.md }}>👤</span>
+                  <span style={{ color: colors.brand.linkText, display: "flex" }}>
+                    <UserIcon size={16} strokeWidth={1.5} />
+                  </span>
                   <span style={{ fontSize: font.base, color: colors.text.primary, fontWeight: 600 }}>
                     {user.name}
                   </span>
@@ -542,7 +495,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* 圆形头像按钮：48px 触控目标，取姓名首字，未加载时用 👤 */}
+            {/* 圆形头像按钮：48px 触控目标，取姓名首字，无姓名时用线性人形图标 */}
             <button
               onClick={() => setMenuOpen((o) => !o)}
               aria-label="用户菜单"
@@ -551,14 +504,14 @@ export default function Home() {
                 borderRadius: "50%",
                 background: colors.brand.primaryBg,
                 border: `1px solid ${colors.brand.primaryBorder}`,
-                color: colors.text.primary,
+                color: colors.brand.linkText,
                 fontSize: font.xl, fontWeight: 600,
                 cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                boxShadow: colors.shadow.float,
               }}
             >
-              {user.name ? user.name.slice(0, 1) : "👤"}
+              {user.name ? user.name.slice(0, 1) : <UserIcon size={20} strokeWidth={1.5} />}
             </button>
           </div>
         </>
@@ -581,7 +534,7 @@ export default function Home() {
             color: colors.text.inverse,
             fontSize: font.base, fontWeight: 600,
             cursor: "pointer",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            boxShadow: colors.shadow.float,
           }}
         >
           登录 / 注册

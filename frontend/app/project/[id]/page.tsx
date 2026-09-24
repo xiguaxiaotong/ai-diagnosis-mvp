@@ -10,6 +10,10 @@ import { useTheme } from "../../../lib/theme";
 import { useSwipeBack } from "../../../lib/useSwipeBack";
 import { BackBar, BACK_BAR_HEIGHT } from "../../../components/BackBar";
 import { font, fontFluid, lineHeight, radius, space, touch, type ThemeColors } from "../../../lib/tokens";
+import {
+  Check, ClipboardCopy, FileDown, Image as ImageIcon, Lightbulb,
+  PenLine, Pin, Save, Target, TriangleAlert, X,
+} from "lucide-react";
 
 interface Module {
   name: string;
@@ -400,13 +404,15 @@ export default function ProjectPage() {
           border: `1px solid ${colors.brand.primaryBorder}`,
         }}>
           {plan.one_liner && (
-            <p style={{ margin: 0, fontSize: font.xxl, fontWeight: 700, lineHeight: lineHeight.loose, color: colors.brand.onPrimaryBg }}>
-              💡 {plan.one_liner}
+            <p style={{ margin: 0, fontSize: font.xxl, fontWeight: 700, lineHeight: lineHeight.loose, color: colors.brand.onPrimaryBg, display: "flex", alignItems: "flex-start", gap: space.sm }}>
+              <Lightbulb size={18} strokeWidth={1.5} style={{ flexShrink: 0, marginTop: 4 }} />
+              {plan.one_liner}
             </p>
           )}
           {(s.requirements?.summary || s.budget_tier?.recap) && (
-            <p style={{ margin: `${space.xs}px 0 0`, fontSize: font.xs, lineHeight: lineHeight.loose, color: colors.brand.onPrimaryBg }}>
-              📌 本次约定：{[s.requirements?.summary, s.budget_tier?.recap].filter(Boolean).join("；")}
+            <p style={{ margin: `${space.xs}px 0 0`, fontSize: font.xs, lineHeight: lineHeight.loose, color: colors.brand.onPrimaryBg, display: "flex", alignItems: "flex-start", gap: space.xs }}>
+              <Pin size={13} strokeWidth={1.5} style={{ flexShrink: 0, marginTop: 3 }} />
+              本次约定：{[s.requirements?.summary, s.budget_tier?.recap].filter(Boolean).join("；")}
             </p>
           )}
         </div>
@@ -441,9 +447,10 @@ export default function ProjectPage() {
             background: colors.bg.surface, color: colors.brand.linkText,
             border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md,
             fontSize: font.base, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: space.xs,
           }}
         >
-          📋 复制方案文字
+          <ClipboardCopy size={16} strokeWidth={1.5} /> 复制方案文字
         </button>
         <button
           onClick={exportPdf}
@@ -452,9 +459,10 @@ export default function ProjectPage() {
             background: colors.brand.primary, color: "#fff",
             border: "none", borderRadius: radius.md,
             fontSize: font.base, fontWeight: 600, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: space.xs,
           }}
         >
-          📄 导出 PDF（推荐）
+          <FileDown size={16} strokeWidth={1.5} /> 导出 PDF（推荐）
         </button>
         <button
           onClick={saveImage}
@@ -463,16 +471,18 @@ export default function ProjectPage() {
             background: colors.bg.surface, color: colors.brand.linkText,
             border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md,
             fontSize: font.base, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: space.xs,
           }}
         >
-          🖼 保存为图片
+          <ImageIcon size={16} strokeWidth={1.5} /> 保存为图片
         </button>
         {saved && (
           <span style={{ fontSize: font.sm, color: colors.status.successStrong, alignSelf: "center" }}>{saved}</span>
         )}
       </div>
-      <p className="no-print" style={{ fontSize: font.xs, color: colors.text.tertiary, marginTop: `-${space.lg}px`, marginBottom: space.xl }}>
-        ⚠️ 手机截图只能截到当前屏幕，长方案会被截断——建议用上方按钮导出完整内容再分享
+      <p className="no-print" style={{ fontSize: font.xs, color: colors.text.tertiary, marginTop: `-${space.lg}px`, marginBottom: space.xl, display: "flex", alignItems: "center", gap: space.xs }}>
+        <TriangleAlert size={13} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+        手机截图只能截到当前屏幕，长方案会被截断——建议用上方按钮导出完整内容再分享
       </p>
 
       {banner && (
@@ -511,12 +521,13 @@ export default function ProjectPage() {
             ) : (
               <p style={{ fontSize: font.base, lineHeight: lineHeight.loose, margin: 0 }}>
                 免费思路版，不涉及开发报价。先用上面推荐的现成免费工具跑起来，够用就不花钱；
-                想知道花钱开发大概要多少钱，回对话里直接问我 👌
+                想知道花钱开发大概要多少钱，回对话里直接问我
               </p>
             )}
             {s.budget_tier?.recap && (
-              <p style={{ fontSize: font.sm, color: colors.text.secondary, margin: `${space.xs}px 0 0` }}>
-                🎯 {s.budget_tier.recap}——本方案已按该预算裁剪设计
+              <p style={{ fontSize: font.sm, color: colors.text.secondary, margin: `${space.xs}px 0 0`, display: "flex", alignItems: "center", gap: space.xs }}>
+                <Target size={14} strokeWidth={1.5} style={{ color: colors.brand.linkText, flexShrink: 0 }} />
+                {s.budget_tier.recap}——本方案已按该预算裁剪设计
               </p>
             )}
           </div>
@@ -732,17 +743,18 @@ export default function ProjectPage() {
             <button
               onClick={() => confirmAction("confirm")}
               disabled={busy}
-              style={{ minHeight: touch.large, padding: `${space.md}px ${space.xxl + 6}px`, background: busy ? colors.muted.bg : colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
+              style={{ minHeight: touch.large, padding: `${space.md}px ${space.xxl + 6}px`, background: busy ? colors.muted.bg : colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: space.xs }}
             >
               {/* 产品规则 #六：免费试试没有开发交付，确认 = 保存方案结束诊断，不引导进付费流程 */}
-              {isFree ? "💾 保存这份方案" : "✓ 确认，对接开发者评估"}
+              {isFree ? <Save size={16} strokeWidth={1.5} /> : <Check size={16} strokeWidth={2} />}
+              {isFree ? "保存这份方案" : "确认，对接开发者评估"}
             </button>
             <button
               onClick={() => setReviseMode(true)}
               disabled={busy}
-              style={{ minHeight: touch.large, padding: `${space.md}px ${space.xxl + 2}px`, background: colors.bg.surface, color: colors.brand.linkText, border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
+              style={{ minHeight: touch.large, padding: `${space.md}px ${space.xxl + 2}px`, background: colors.bg.surface, color: colors.brand.linkText, border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md, fontSize: font.base, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: space.xs }}
             >
-              ✏️ 修改我的需求
+              <PenLine size={16} strokeWidth={1.5} /> 修改我的需求
             </button>
             <span style={{ fontSize: font.xs, color: colors.text.tertiary }}>修改后方案与预算会重新生成</span>
           </>
@@ -775,10 +787,11 @@ export default function ProjectPage() {
               style={{
                 minHeight: touch.large, minWidth: touch.large,
                 background: "none", border: "none", color: "#fff",
-                fontSize: font.xxl, cursor: "pointer", lineHeight: 1,
+                cursor: "pointer", lineHeight: 1,
+                display: "flex", alignItems: "center", justifyContent: "center",
               }}
             >
-              ✕
+              <X size={22} strokeWidth={1.5} />
             </button>
           </div>
           <img

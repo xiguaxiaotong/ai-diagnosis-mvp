@@ -36,7 +36,7 @@ export interface ThemeColors {
   bg: { page: string; surface: string; muted: string; disabled: string };
   muted: { fg: string; bg: string };
   /** 卡片浮起阴影：浅色主题柔和投影（页面浅灰托白卡），深色主题分层靠背景亮度差、给 none */
-  shadow: { card: string };
+  shadow: { card: string; float: string };
 }
 
 /** 暗夜紫：高端/神秘/年轻/夜间。高级感关键：底色带紫调不纯黑，
@@ -87,7 +87,10 @@ const DARK_COLORS: ThemeColors = {
     fg: "#6e6780",        // 占位符/disabled 文字（紫灰）
     bg: "#3a3450",        // disabled 按钮背景（紫调）
   },
-  shadow: { card: "none" }, // 深色分层靠背景亮度差，不加投影
+  shadow: {
+    card: "none", // 深色分层靠背景亮度差，不加投影
+    float: "0 8px 24px rgba(0,0,0,.45)", // 浮层（菜单/悬浮钮）需要投影区分层级
+  },
 };
 
 /** 经典浅色：干净/专业/白天通用（给老板看的主力主题）。
@@ -140,6 +143,7 @@ const LIGHT_COLORS: ThemeColors = {
   shadow: {
     // 柔和双层投影：让白卡在浅灰页面上「浮」起来（主力主题的质感来源）
     card: "0 1px 2px rgba(16,24,40,.04), 0 2px 8px rgba(16,24,40,.06)",
+    float: "0 8px 24px rgba(16,24,40,.16)", // 浮层：比卡片投影重一档但依然柔和
   },
 };
 
@@ -190,7 +194,10 @@ const OCEAN_COLORS: ThemeColors = {
     fg: "#5c6e80",        // 占位符（蓝灰）
     bg: "#2c4257",        // disabled 按钮背景
   },
-  shadow: { card: "none" }, // 深色分层靠背景亮度差
+  shadow: {
+    card: "none", // 深色分层靠背景亮度差
+    float: "0 8px 24px rgba(0,0,0,.45)",
+  },
 };
 
 // ---------- 主题注册表 ----------

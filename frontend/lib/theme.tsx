@@ -12,6 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Palette } from "lucide-react";
 
 import {
   THEMES,
@@ -95,7 +96,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             style={{
               position: "absolute", top: 0, right: 0,
               background: colors.bg.surface, border: `1px solid ${colors.border.subtle}`,
-              borderRadius: radius.md, boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+              borderRadius: radius.md, boxShadow: colors.shadow.float,
               overflow: "hidden", minWidth: 128,
             }}
           >
@@ -122,13 +123,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           onClick={() => setOpen((v) => !v)}
           aria-label="切换主题"
           style={{
-            width: 44, height: 44, lineHeight: "44px", textAlign: "center",
+            width: 44, height: 44, textAlign: "center",
             background: colors.bg.surface, color: colors.brand.linkText,
             border: `1px solid ${colors.border.default}`,
-            borderRadius: radius.pill, fontSize: font.xxl, cursor: "pointer",
+            borderRadius: radius.pill, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: colors.shadow.float,
           }}
         >
-          🎨
+          <Palette size={20} strokeWidth={1.5} />
         </button>
       </div>
     </ThemeContext.Provider>

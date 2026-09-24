@@ -8,6 +8,7 @@ import { getToken, handle401, useRequireAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme";
 import { useSwipeBack } from "../../../lib/useSwipeBack";
 import { font, lineHeight, radius, space, touch } from "../../../lib/tokens";
+import { Check, Cog, History, PenLine, Pin, Target } from "lucide-react";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -298,7 +299,7 @@ export default function ChatPage() {
   function confirmAction(action: "confirm" | "revise", feedback?: string) {
     const text = action === "confirm" ? "确认，就这样" : (feedback ?? "").trim();
     if (!text) {
-      setError(action === "revise" ? "先说说需要修改哪里，再点发送 ✍️" : "请输入内容再发送 ✍️");
+      setError(action === "revise" ? "先说说需要修改哪里，再点发送" : "请输入内容再发送");
       inputRef.current?.focus();
       return;
     }
@@ -315,7 +316,7 @@ export default function ChatPage() {
     const selectedEntries = Object.entries(selected);
     if (!text && !file && !selectedEntries.length) {
       // 空发送不再静默：提示 + 聚焦（移动端「点了没反应」体验最差）
-      setError("先点选答案或输入内容再发送 ✍️");
+      setError("先点选答案或输入内容再发送");
       inputRef.current?.focus();
       return;
     }
@@ -373,7 +374,7 @@ export default function ChatPage() {
   function confirmPain() {
     const checked = painPoints.filter((p) => painChecked.has(p));
     if (!checked.length) {
-      setError("至少勾选一条痛点，或直接回答下面的问题 ✍️");
+      setError("至少勾选一条痛点，或直接回答下面的问题");
       return;
     }
     setPainConfirmed(true);
@@ -426,7 +427,10 @@ export default function ChatPage() {
           border: `1px solid ${colors.brand.primaryBorder}`,
           color: colors.brand.onPrimaryBg, fontSize: font.xs,
         }}>
-          <span>📍 {constraints.recap}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: space.xs }}>
+            <Pin size={13} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+            {constraints.recap}
+          </span>
         </div>
       )}
 
@@ -438,7 +442,10 @@ export default function ChatPage() {
           background: colors.bg.muted, borderRadius: radius.md,
           fontSize: font.xs, color: colors.text.secondary,
         }}>
-          ↩️ 已加载上次填写的需求：下方选项可直接点选修改，改完发送即可继续生成方案
+          <span style={{ display: "flex", alignItems: "center", gap: space.xs }}>
+            <History size={13} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+            已加载上次填写的需求：下方选项可直接点选修改，改完发送即可继续生成方案
+          </span>
         </div>
       )}
 
@@ -531,8 +538,9 @@ export default function ChatPage() {
                 margin: `0 0 ${space.base}px`, padding: `${space.md}px ${space.base}px`,
                 background: colors.bg.surface, border: `1px solid ${colors.brand.primaryBorder}`, borderRadius: radius.md,
               }}>
-                <div style={{ fontSize: font.sm, color: colors.text.primary, marginBottom: space.sm, fontWeight: 600 }}>
-                  🎯 我识别到你这些痛点，勾选确认（不对的取消勾选）：
+                <div style={{ display: "flex", alignItems: "center", gap: space.xs, fontSize: font.sm, color: colors.text.primary, marginBottom: space.sm, fontWeight: 600 }}>
+                  <Target size={15} strokeWidth={1.5} style={{ color: colors.brand.linkText, flexShrink: 0 }} />
+                  我识别到你这些痛点，勾选确认（不对的取消勾选）：
                 </div>
                 {painPoints.map((p) => (
                   <label key={p} style={{
@@ -555,9 +563,10 @@ export default function ChatPage() {
                     marginTop: space.xs, minHeight: touch.base, padding: `0 ${space.lg}px`,
                     background: colors.brand.primary, color: colors.text.inverse,
                     border: "none", borderRadius: radius.md, fontSize: font.sm, cursor: "pointer",
+                    display: "inline-flex", alignItems: "center", gap: space.xs,
                   }}
                 >
-                  ✓ 确认这些痛点
+                  <Check size={15} strokeWidth={2} /> 确认这些痛点
                 </button>
               </div>
             )}
@@ -633,15 +642,15 @@ export default function ChatPage() {
           <div style={{ margin: `${space.sm}px 0 ${space.xl}px`, display: "flex", gap: space.md }}>
             <button
               onClick={() => confirmAction("confirm")}
-              style={{ minHeight: touch.large, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
+              style={{ minHeight: touch.large, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: space.xs }}
             >
-              ✓ 确认方案
+              <Check size={16} strokeWidth={2} /> 确认方案
             </button>
             <button
               onClick={() => setReviseMode(true)}
-              style={{ minHeight: touch.large, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.bg.surface, color: colors.brand.linkText, border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md, fontSize: font.base, cursor: "pointer" }}
+              style={{ minHeight: touch.large, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.bg.surface, color: colors.brand.linkText, border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md, fontSize: font.base, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: space.xs }}
             >
-              ✏️ 需要修改
+              <PenLine size={16} strokeWidth={1.5} /> 需要修改
             </button>
           </div>
         )}
@@ -660,8 +669,9 @@ export default function ChatPage() {
            （正文开始流式后隐藏；防「长时间空白像卡死」的焦虑） */}
         {busy && !streamBuf && (
           <div style={{ margin: `0 0 ${space.base}px` }}>
-            <p style={{ fontSize: font.sm, color: colors.text.secondary, margin: 0 }}>
-              ⚙ {stage ?? "正在读取你的项目需求…"}（已处理 {waitSec} 秒，AI 正在分析，请稍候）
+            <p style={{ fontSize: font.sm, color: colors.text.secondary, margin: 0, display: "flex", alignItems: "center", gap: space.xs }}>
+              <Cog size={14} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+              {stage ?? "正在读取你的项目需求…"}（已处理 {waitSec} 秒，AI 正在分析，请稍候）
             </p>
             <p style={{ fontSize: font.xs, color: colors.text.tertiary, margin: `${space.xs}px 0 0` }}>
               复杂需求评估需要一点时间，不会卡住，请勿重复提交
@@ -811,7 +821,7 @@ export default function ChatPage() {
           onClick={() => (reviseMode ? confirmAction("revise", input) : submitInput())}
           disabled={inputDisabled}
           style={{
-            minHeight: touch.large, padding: `0 ${space.xxl + 6}px`, fontSize: font.md, borderRadius: radius.lg, border: "none",
+            minHeight: touch.large, padding: `0 ${space.xxl + 6}px`, fontSize: font.md, borderRadius: radius.md, border: "none",
             background: inputDisabled ? colors.muted.bg : colors.brand.primary,
             color: colors.text.inverse, cursor: inputDisabled ? "not-allowed" : "pointer",
           }}
