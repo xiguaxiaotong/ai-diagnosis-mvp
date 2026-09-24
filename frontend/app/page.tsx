@@ -204,7 +204,18 @@ export default function Home() {
         不用懂代码，只需要讲清楚你想解决什么问题
       </p>
 
-      {/* 场景卡：不知道写什么 → 点一张直接填入（功能性视觉，替代轮换示例文字） */}
+      {/* 场景卡：不知道写什么 → 点一张直接填入（功能性视觉，替代轮换示例文字）
+          移动端（<560px）切「图标左 + 文案右」紧凑横排并缩小图标，
+          避免三张竖排大卡把输入框挤出首屏；桌面端保持竖排大卡 */}
+      <style jsx global>{`
+        .sc-card { display: flex; flex-direction: column; align-items: flex-start; gap: ${space.sm}px; }
+        .sc-body { display: flex; flex-direction: column; gap: 3px; }
+        @media (max-width: 559px) {
+          .sc-card { flex-direction: row; align-items: center; gap: ${space.md}px; padding: ${space.sm}px ${space.md}px; }
+          .sc-icon { width: 30px; height: 30px; }
+          .sc-icon svg { width: 16px; height: 16px; }
+        }
+      `}</style>
       <div
         style={{
           display: "flex", flexWrap: "wrap", justifyContent: "center",
@@ -214,6 +225,7 @@ export default function Home() {
         {SCENARIOS.map((s) => (
           <button
             key={s.title}
+            className="sc-card"
             onClick={() => {
               setIdea(s.idea);
               if (hint) setHint(null);
@@ -221,7 +233,6 @@ export default function Home() {
             }}
             style={{
               flex: "1 1 30%", minWidth: 200, maxWidth: 260,
-              display: "flex", flexDirection: "column", alignItems: "flex-start", gap: space.sm,
               padding: `${space.base + 2}px ${space.base + 2}px`,
               background: colors.bg.surface,
               border: borderStyle.card, borderRadius: radius.lg,
@@ -230,8 +241,9 @@ export default function Home() {
             }}
           >
             <span
+              className="sc-icon"
               style={{
-                width: 36, height: 36, borderRadius: radius.md,
+                borderRadius: radius.md,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: colors.brand.primaryBg, color: colors.brand.linkText,
                 flexShrink: 0,
@@ -239,11 +251,13 @@ export default function Home() {
             >
               <Icon name={s.icon} size={19} />
             </span>
-            <span style={{ fontSize: font.base, fontWeight: 600, color: colors.text.primary }}>
-              {s.title}
-            </span>
-            <span style={{ fontSize: font.sm, color: colors.text.secondary, lineHeight: lineHeight.tight }}>
-              {s.desc}
+            <span className="sc-body">
+              <span style={{ fontSize: font.base, fontWeight: 600, color: colors.text.primary }}>
+                {s.title}
+              </span>
+              <span style={{ fontSize: font.sm, color: colors.text.secondary, lineHeight: lineHeight.tight }}>
+                {s.desc}
+              </span>
             </span>
           </button>
         ))}
