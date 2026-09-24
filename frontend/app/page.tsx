@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, API_BASE } from "../lib/api";
-import { getUser, useAuthed, getToken, type AuthUser } from "../lib/auth";
+import { getUser, useAuthed, getToken, saveSession, isGuest, stashGuestToken, type AuthUser } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { font, fontFluid, lineHeight, radius, space, touch } from "../lib/tokens";
 
@@ -151,12 +151,19 @@ export default function Home() {
       return;
     }
     setHint(null);
-    // 未登录游客：想法暂存到本会话，先去注册/登录（回来自动恢复接着创建）。
-    // 项目数据只在登录账号下存库（隔离设计 #4：游客不产生后端数据）
+    // 免登录先体验（转化优化）：无 token 的访客先领「游客身份」——
+    // 后端发真实游客 User + token，完整诊断流程零门槛走通；
+    // 到「保存方案/申请对接」才要求注册，注册时项目一键过户（login 页 claim）
     if (!getToken()) {
-      sessionStorage.setItem("diag_pending_idea", text);
-      router.push("/login?next=%2F");
-      return;
+      try {
+        const g = await api<{ token: string; user: AuthUser }>("/api/auth/guest", { method: "POST" });
+        saveSession(g.token, g.user);
+      } catch (e) {
+        setError(String(e));
+        setCreating(false);
+        creatingRef.current = false;
+        return;
+      }
     }
     setCreating(true);
     creatingRef.current = true;
@@ -504,12 +511,29 @@ export default function Home() {
 
                 {!showProfile ? (
                   <>
-                    <button
-                      onClick={() => setShowProfile(true)}
-                      style={menuItemStyle(colors, borderStyle.row)}
-                    >
-                      个人信息
-                    </button>
+                    {isGuest() ? (
+                      /* 游客：给出保数据的注册入口（游客项目在注册时一键过户） */
+                      <button
+                        onClick={() => {
+                          stashGuestToken();
+                          router.push("/login?next=%2F");
+                        }}
+                        style={{
+                          ...menuItemStyle(colors, borderStyle.row),
+                          color: colors.brand.linkText,
+                          fontWeight: 600,
+                        }}
+                      >
+                        注册 / 登录，保留我的方案
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowProfile(true)}
+                        style={menuItemStyle(colors, borderStyle.row)}
+                      >
+                        个人信息
+                      </button>
+                    )}
                     <button
                       onClick={logout}
                       style={{
