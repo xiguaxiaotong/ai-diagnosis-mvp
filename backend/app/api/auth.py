@@ -83,7 +83,8 @@ def _create_session(db: Session, user_id: int) -> str:
 
 
 def _user_payload(user: User) -> dict[str, Any]:
-    return {"id": user.id, "username": user.username, "name": user.name}
+    # is_guest：username 为空 = 游客会话（免登录体验产生），前端据此提示注册
+    return {"id": user.id, "username": user.username, "name": user.name, "is_guest": user.username is None}
 
 
 # ---------- 接口 ----------
@@ -133,3 +134,51 @@ def login(body: AuthBody, db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.get("/me")
 def me(user: User = Depends(get_current_user)) -> dict[str, Any]:
     return {"user": _user_payload(user)}
+
+
+@router.post("/guest")
+def create_guest(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """免登录体验（转化优化）：无 token 的访客一键领取「游客身份」。
+
+    游客是真实的 User 行（username/password 为 NULL）+ 正常会话 token，
+    下游所有鉴权接口（创建项目/诊断/方案）零改动即可走完整流程；
+    注册/登录时用 /claim 把游客名下项目一键过户到正式账号。
+    """
+    user = User(username=None, name="游客", password_hash=None)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = _create_session(db, user.id)
+    return {"token": token, "user": _user_payload(user), "note": "游客模式：体验完整诊断，注册后方案自动保留"}
+
+
+class ClaimBody(BaseModel):
+    guest_token: str = Field(min_length=8, max_length=64)
+
+
+@router.post("/claim")
+def claim(
+    body: ClaimBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """游客项目过户：注册/登录成功后，把游客名下项目全部转到正式账号。
+
+    幂等：令牌无效/已过户过则安静返回（前端登录页统一调用，失败不阻塞跳转）。
+    """
+    session = db.get(AuthSession, body.guest_token)
+    if session is None:
+        return {"moved": 0}
+    guest = db.get(User, session.user_id)
+    if guest is None or guest.username is not None:
+        # 防御：令牌对应的不是游客账号（正常用户自己的 token），不动
+        return {"moved": 0}
+    moved = (
+        db.query(Project)
+        .filter(Project.user_id == guest.id)
+        .update({Project.user_id: user.id})
+    )
+    db.delete(session)
+    db.delete(guest)  # 项目已改挂正式账号，游客行可删（AuthSession 级联）
+    db.commit()
+    return {"moved": moved}

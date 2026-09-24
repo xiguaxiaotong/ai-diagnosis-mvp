@@ -5,11 +5,15 @@ import { useEffect, useState } from "react";
 
 const TOKEN_KEY = "diag_token";
 const USER_KEY = "diag_user";
+// 游客项目过户（转化优化）：游客去注册/登录时把游客 token 暂存这里，
+// 登录成功后登录页统一调 /api/auth/claim 把游客项目过户到正式账号
+const GUEST_TOKEN_KEY = "diag_guest_token";
 
 export interface AuthUser {
   id: number;
-  username: string;
+  username: string | null; // 游客会话为 null
   name: string;
+  is_guest?: boolean;
 }
 
 export function getToken(): string | null {
@@ -36,6 +40,26 @@ export function saveSession(token: string, user: AuthUser): void {
 export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+}
+
+/** 当前是否游客会话（免登录体验产生，注册后方案自动保留）。 */
+export function isGuest(): boolean {
+  const u = getUser();
+  return Boolean(u) && (u!.is_guest === true || u!.username == null);
+}
+
+/** 游客去登录前暂存其 token，登录成功后用于项目过户。 */
+export function stashGuestToken(): void {
+  const t = getToken();
+  if (t && typeof window !== "undefined") sessionStorage.setItem(GUEST_TOKEN_KEY, t);
+}
+
+/** 取出（并清掉）暂存的游客 token；没有则返回 null。 */
+export function popGuestToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const t = sessionStorage.getItem(GUEST_TOKEN_KEY);
+  if (t) sessionStorage.removeItem(GUEST_TOKEN_KEY);
+  return t;
 }
 
 /** 401 时清会话并跳登录页（带回跳地址）。避免在 SSR/循环里反复跳。 */

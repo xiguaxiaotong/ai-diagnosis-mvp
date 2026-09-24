@@ -8,7 +8,7 @@ import { getToken, handle401, useRequireAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme";
 import { useSwipeBack } from "../../../lib/useSwipeBack";
 import { font, lineHeight, radius, space, touch } from "../../../lib/tokens";
-import { Check, Cog, History, Lightbulb, Paperclip, PenLine, Pin, Target, X } from "lucide-react";
+import { Check, Cog, History, Lightbulb, Mic, Paperclip, PenLine, Pin, Target, X } from "lucide-react";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -94,6 +94,47 @@ export default function ChatPage() {
   const autoSentRef = useRef(false); // raw_idea 自动首发守卫（StrictMode 双执行防重）
   const busyRef = useRef(false); // 双击/重提交同步守卫（React state 异步生效前的 race window）
   const loadedForRef = useRef<number | null>(null); // 每个项目只加载一次（防二次执行覆盖 msgs）
+
+  // 语音输入（转化优化：老板说话比打字容易）——Web Speech API，中文连续识别追加到输入框
+  const [listening, setListening] = useState(false);
+  const recRef = useRef<any>(null);
+
+  function toggleVoice() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setError("当前浏览器不支持语音输入（手机推荐用自带浏览器或 Chrome 打开）");
+      return;
+    }
+    if (recRef.current) {
+      // 正在听 → 停止
+      try { recRef.current.stop(); } catch { /* ignore */ }
+      return;
+    }
+    const rec = new SR();
+    rec.lang = "zh-CN";
+    rec.interimResults = false; // 只要整句结果，避免把半截字写进输入框
+    rec.continuous = true; // 可以一直说，点按钮结束
+    rec.onresult = (e: any) => {
+      let txt = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
+      if (txt) setInput((v) => (v ? v + txt : txt));
+    };
+    const done = () => { recRef.current = null; setListening(false); };
+    rec.onend = done;
+    rec.onerror = (e: any) => {
+      done();
+      if (e?.error === "not-allowed") setError("麦克风权限被拒绝，请在浏览器设置里允许后重试");
+    };
+    recRef.current = rec;
+    setListening(true);
+    if (error) setError(null);
+    try {
+      rec.start();
+    } catch {
+      done();
+    }
+  }
+
 
   // 移动端右滑返回（辅助手势）：固定回历史项目列表，发送中停用防误滑中断流
   useSwipeBack(
@@ -796,6 +837,22 @@ export default function ChatPage() {
             }}
           />
         </label>
+        {/* 语音输入：点击开始/结束说话，识别文字追加进输入框 */}
+        <button
+          onClick={toggleVoice}
+          disabled={inputDisabled}
+          aria-label={listening ? "结束语音输入" : "语音输入"}
+          style={{
+            minHeight: touch.large, minWidth: touch.large, display: "flex", alignItems: "center", justifyContent: "center",
+            border: `1px solid ${listening ? colors.status.danger : borderStyle.input}`,
+            borderRadius: radius.lg, cursor: inputDisabled ? "not-allowed" : "pointer",
+            background: listening ? colors.status.dangerBg : (inputDisabled ? colors.bg.disabled : colors.bg.surface),
+            color: listening ? colors.status.danger : colors.text.secondary, userSelect: "none",
+          }}
+          title={listening ? "正在听…点击结束" : "点击说话（语音输入）"}
+        >
+          <Mic size={22} strokeWidth={1.5} />
+        </button>
         <textarea
           ref={inputRef}
           value={input}

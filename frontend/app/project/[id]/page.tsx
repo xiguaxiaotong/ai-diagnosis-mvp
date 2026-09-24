@@ -5,14 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { useEffect } from "react";
 import { api, apiDownload } from "../../../lib/api";
-import { useRequireAuth } from "../../../lib/auth";
+import { isGuest, stashGuestToken, useRequireAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme";
 import { useSwipeBack } from "../../../lib/useSwipeBack";
 import { BackBar, BACK_BAR_HEIGHT } from "../../../components/BackBar";
 import { font, fontFluid, lineHeight, radius, space, touch, type ThemeColors } from "../../../lib/tokens";
 import {
   Check, ClipboardCopy, FileDown, Image as ImageIcon, Lightbulb,
-  PenLine, Pin, Save, Target, TriangleAlert, X,
+  PenLine, Pin, Save, Share2, Target, TriangleAlert, X,
 } from "lucide-react";
 
 interface Module {
@@ -288,6 +288,31 @@ export default function ProjectPage() {
       .then(setD)
       .catch((e) => setError(String(e)));
 
+  /** 生成公开分享链接并复制（转化优化：老板转给合伙人 = 免费传播，无需注册即可看） */
+  async function sharePlan() {
+    if (!d || busy) return;
+    try {
+      const r = await api<{ share_token: string }>(`/api/projects/${projectId}/share`, {
+        method: "POST",
+      });
+      const url = `${window.location.origin}/share/${r.share_token}`;
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        // 微信内置浏览器等无 clipboard API：老办法兜底
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setSaved("分享链接已复制，发给朋友即可查看（无需注册）");
+    } catch (e) {
+      setSaved(`生成分享链接失败：${String(e)}`);
+    }
+  }
+
   useEffect(() => {
     if (projectId) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -295,6 +320,13 @@ export default function ProjectPage() {
 
   async function confirmAction(action: "confirm" | "revise", fb?: string) {
     if (busy) return;
+    // 免登录先体验的最后一道闸：保存 / 申请对接 / 提交修改都是「动真格」的动作，
+    // 游客到此先去注册（登录后项目自动过户，回来接着点即可）
+    if (isGuest()) {
+      stashGuestToken();
+      router.push(`/login?next=${encodeURIComponent(`/project/${projectId}`)}`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -476,6 +508,18 @@ export default function ProjectPage() {
           }}
         >
           <ImageIcon size={16} strokeWidth={1.5} /> 保存为图片
+        </button>
+        <button
+          onClick={sharePlan}
+          style={{
+            minHeight: touch.large, padding: `${space.md}px ${space.xl}px`,
+            background: colors.bg.surface, color: colors.brand.linkText,
+            border: `1px solid ${colors.brand.linkText}`, borderRadius: radius.md,
+            fontSize: font.base, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: space.xs,
+          }}
+        >
+          <Share2 size={16} strokeWidth={1.5} /> 生成分享链接
         </button>
         {saved && (
           <span style={{ fontSize: font.sm, color: colors.status.successStrong, alignSelf: "center" }}>{saved}</span>

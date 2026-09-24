@@ -78,6 +78,9 @@ class Project(Base):
     # 已确认字段的持久副本，独立于图 checkpoint，供「修改需求」等程序直接读写
     req_profile: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # 方案公开分享令牌（用户点「生成分享链接」时生成；NULL = 未开启分享）
+    share_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

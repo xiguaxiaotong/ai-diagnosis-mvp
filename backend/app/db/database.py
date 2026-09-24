@@ -63,6 +63,13 @@ def init_db() -> None:
             conn.exec_driver_sql("ALTER TABLE users ADD COLUMN password_hash VARCHAR(256)")
             conn.commit()
 
+    # 方案分享迁移：projects.share_token（NULL = 未开启公开分享）
+    with engine.connect() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(projects)")}
+        if "share_token" not in cols:
+            conn.exec_driver_sql("ALTER TABLE projects ADD COLUMN share_token VARCHAR(64)")
+            conn.commit()
+
 
 def get_db():
     """FastAPI 依赖：每个请求一个会话，用完自动关闭。"""

@@ -3,15 +3,16 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { API_BASE } from "../../lib/api";
-import { saveSession } from "../../lib/auth";
+import { isGuest, popGuestToken, saveSession } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
 import { font, radius, space, touch } from "../../lib/tokens";
 
-/** 已登录则直接进首页（刷新 /login 不再看表单）。 */
+/** 已登录则直接进首页（刷新 /login 不再看表单）。
+ *  游客例外：游客有 token 但来这儿就是为了注册，不能被踢回去。 */
 function useRedirectIfAuthed() {
   const router = useRouter();
   useEffect(() => {
-    if (localStorage.getItem("diag_token")) router.replace("/");
+    if (localStorage.getItem("diag_token") && !isGuest()) router.replace("/");
   }, [router]);
 }
 
@@ -50,6 +51,22 @@ function LoginForm() {
         return;
       }
       saveSession(data.token, data.user);
+      // 游客项目过户：把游客名下项目全部转到刚登录的正式账号（失败不阻塞跳转）
+      const guestToken = popGuestToken();
+      if (guestToken) {
+        try {
+          await fetch(`${API_BASE}/api/auth/claim`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${data.token}`,
+            },
+            body: JSON.stringify({ guest_token: guestToken }),
+          });
+        } catch {
+          /* 过户失败不影响登录本身 */
+        }
+      }
       if (data.note) setNote(data.note);
       router.replace(next);
     } catch {

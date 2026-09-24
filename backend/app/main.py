@@ -15,11 +15,14 @@ M0 阶段接口：
 """
 
 from contextlib import asynccontextmanager
+import json
+import secrets
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
@@ -165,3 +168,42 @@ def delete_project(
         raise HTTPException(status_code=404, detail="项目不存在")
     project_service.delete_project(db, project_id)
     return {"deleted": True}
+
+
+# ---------- 方案分享（转化优化：老板转给合伙人 = 免费传播） ----------
+
+
+@app.post("/api/projects/{project_id}/share")
+def create_share_link(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """生成（或返回已有的）公开分享令牌。仅项目所有者可操作。"""
+    p = project_service.get_project(db, project_id)
+    if p is None or p.user_id != user.id:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not p.share_token:
+        p.share_token = secrets.token_urlsafe(12)
+        db.commit()
+    return {"share_token": p.share_token}
+
+
+@app.get("/api/share/{token}")
+def get_shared_plan(token: str, db: Session = Depends(get_db)):
+    """公开只读方案页数据（无需登录）：合伙人/朋友打开链接即可看方案。
+
+    刻意不返回 raw_idea / messages（对话隐私），只给方案本体。
+    """
+    p = db.scalar(select(Project).where(Project.share_token == token))
+    if p is None:
+        raise HTTPException(status_code=404, detail="分享链接不存在或已失效")
+    solution = json.loads(p.plan) if p.plan else None
+    return {
+        "title": p.title,
+        "status": p.status,
+        "budget_min": p.budget_min,
+        "budget_max": p.budget_max,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "solution": solution,
+    }
