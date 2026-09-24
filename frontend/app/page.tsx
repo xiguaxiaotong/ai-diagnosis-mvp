@@ -28,8 +28,8 @@ function menuItemStyle(
 /** 全站唯一图标来源：Lucide 线性图标（统一 strokeWidth=1.5、按需尺寸），
  *  禁止再混入手绘 SVG / emoji / 彩色图标 */
 import {
-  BookOpen, Bot, FileCheck2, FileSearch, Megaphone, MessageCircle,
-  PenLine, Sparkles, Store, User as UserIcon,
+  BookOpen, Cpu, FileCheck2, FileSearch, Megaphone, MessageCircle,
+  PenLine, Store, User as UserIcon, Wand2,
 } from "lucide-react";
 
 const ICONS = {
@@ -40,9 +40,9 @@ const ICONS = {
   user: UserIcon,
   mega: Megaphone,
   pen: PenLine,
-  cpu: Bot,
+  cpu: Cpu,
   docCheck: FileCheck2,
-  spark: Sparkles,
+  spark: Wand2,
 } as const;
 
 function Icon({ name, size = 18 }: { name: keyof typeof ICONS; size?: number }) {
@@ -181,19 +181,24 @@ export default function Home() {
       }}
     >
       {/* 视觉层级（强→弱）：主标题 → 输入框 → 一行简介 → 主按钮 → 次按钮 → 底部状态 */}
+      <style jsx global>{`
+        /* 断行点固定在语义边界「帮你判断」后；窄屏隐藏 <br> 交给自然换行 */
+        .hero-br { display: none; }
+        @media (min-width: 420px) { .hero-br { display: inline; } }
+      `}</style>
       <h1
         style={{
           fontSize: fontFluid.hero,
-          // maxWidth + balance：宽屏下两行优雅均衡断行，不出现笨拙的孤词
           maxWidth: 640,
           margin: `0 auto ${space.base}px`,
           fontWeight: 700,
           letterSpacing: 1,
           lineHeight: 1.3,
-          textWrap: "balance",
         }}
       >
-        描述你的想法，帮你判断能不能做、多少钱、怎么做
+        描述你的想法，帮你判断
+        <br className="hero-br" />
+        能不能做、多少钱、怎么做
       </h1>
       <p style={{ color: colors.text.secondary, margin: `0 0 ${space.xxl}px`, fontSize: font.md }}>
         不用懂代码，只需要讲清楚你想解决什么问题

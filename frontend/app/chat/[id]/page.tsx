@@ -8,14 +8,14 @@ import { getToken, handle401, useRequireAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme";
 import { useSwipeBack } from "../../../lib/useSwipeBack";
 import { font, lineHeight, radius, space, touch } from "../../../lib/tokens";
-import { Check, Cog, History, PenLine, Pin, Target } from "lucide-react";
+import { Check, Cog, History, Lightbulb, Paperclip, PenLine, Pin, Target, X } from "lucide-react";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
 /** 历史消息里的文件上传消息 → 摘要显示（文件全文太长，不直接渲染） */
 function fileTagOf(content: string): string | null {
   const m = content.match(/^\[用户上传文件「(.+?)」（提取 (\d+) 字）\]/);
-  return m ? `📎 ${m[1]}（AI 已读取 ${m[2]} 字）` : null;
+  return m ? `附件：${m[1]}（AI 已读取 ${m[2]} 字）` : null;
 }
 
 /** 追问消息（ask 节点固定格式：引导句 + 编号问题列表）→ 旁白小框渲染 */
@@ -205,7 +205,7 @@ export default function ChatPage() {
     setStage(null);
     setMsgs((m) => [
       ...m,
-      { role: "user", content: file ? `📎 ${file.name}${message ? `\n说明：${message}` : ""}` : message },
+      { role: "user", content: file ? `附件：${file.name}${message ? `\n说明：${message}` : ""}` : message },
     ]);
     setStreamBuf("");
 
@@ -591,7 +591,12 @@ export default function ChatPage() {
                         color: colors.brand.onPrimaryBg, fontSize: font.sm, fontWeight: 600, padding: 0,
                       }}
                     >
-                      {activeQuestion === q ? "📌" : "💡"} {q}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: space.xs, verticalAlign: "-2px" }}>
+                        {activeQuestion === q
+                          ? <Pin size={14} strokeWidth={1.5} aria-hidden />
+                          : <Lightbulb size={14} strokeWidth={1.5} aria-hidden />}
+                        {q}
+                      </span>
                     </button>
                     {selected[q] && (
                       <span style={{ fontSize: font.xs, color: colors.brand.onPrimaryBg, whiteSpace: "nowrap" }}>
@@ -703,15 +708,16 @@ export default function ChatPage() {
           margin: `0 0 ${space.sm}px`, padding: `${space.sm}px ${space.base}px`, background: colors.brand.primaryBg,
           border: `1px solid ${colors.brand.primaryBorder}`, borderRadius: radius.md, display: "flex", alignItems: "center", gap: space.sm,
         }}>
-          <span style={{ flex: 1, fontSize: font.sm, color: colors.text.primary }}>
-            📌 当前问题：{activeQuestion}
+          <span style={{ flex: 1, display: "flex", alignItems: "center", gap: space.xs, fontSize: font.sm, color: colors.text.primary }}>
+            <Pin size={14} strokeWidth={1.5} aria-hidden />
+            当前问题：{activeQuestion}
           </span>
           <button
             onClick={() => setActiveQuestion(null)}
-            style={{ background: "none", border: "none", color: colors.muted.fg, fontSize: font.base, cursor: "pointer", padding: space.xxs }}
+            style={{ background: "none", border: "none", color: colors.muted.fg, cursor: "pointer", padding: space.xxs, display: "flex" }}
             aria-label="取消当前问题"
           >
-            ✕
+            <X size={16} strokeWidth={1.5} aria-hidden />
           </button>
         </div>
       )}
@@ -734,9 +740,9 @@ export default function ChatPage() {
               <button
                 onClick={() => clearSelected(q)}
                 aria-label={`取消 ${q} 的选择`}
-                style={{ background: "none", border: "none", color: colors.brand.onPrimaryBg, cursor: "pointer", padding: 0, fontSize: font.sm, lineHeight: 1 }}
+                style={{ background: "none", border: "none", color: colors.brand.onPrimaryBg, cursor: "pointer", padding: 0, lineHeight: 1, display: "flex" }}
               >
-                ✕
+                <X size={12} strokeWidth={2} aria-hidden />
               </button>
             </span>
           ))}
@@ -751,15 +757,18 @@ export default function ChatPage() {
           margin: `0 0 ${space.sm}px`, padding: `${space.sm}px ${space.base}px`, background: colors.bg.muted,
           border: borderStyle.card, borderRadius: radius.md, display: "flex", alignItems: "center", gap: space.sm,
         }}>
+          <span style={{ display: "flex", flexShrink: 0, color: colors.text.tertiary }}>
+            <Paperclip size={15} strokeWidth={1.5} aria-hidden />
+          </span>
           <span style={{ flex: 1, fontSize: font.sm, color: colors.text.tertiary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            📎 {file.name}（{Math.max(1, Math.round(file.size / 1024))} KB）
+            {file.name}（{Math.max(1, Math.round(file.size / 1024))} KB）
           </span>
           <button
             onClick={() => setFile(null)}
-            style={{ background: "none", border: "none", color: colors.muted.fg, fontSize: font.base, cursor: "pointer", padding: space.xxs }}
+            style={{ background: "none", border: "none", color: colors.muted.fg, cursor: "pointer", padding: space.xxs, display: "flex" }}
             aria-label="移除附件"
           >
-            ✕
+            <X size={16} strokeWidth={1.5} aria-hidden />
           </button>
         </div>
       )}
@@ -772,7 +781,7 @@ export default function ChatPage() {
           }}
           title="上传数据文件（txt/docx/pdf/图片），AI 会根据内容调整方案"
         >
-          📎
+          <Paperclip size={22} strokeWidth={1.5} aria-hidden />
           <input
             ref={fileInputRef}
             type="file"
