@@ -105,12 +105,22 @@ def _project_to_dict(p) -> dict[str, Any]:
 
 @app.get("/api/projects")
 def list_projects(
+    q: str | None = None,
+    status: str | None = None,  # 逗号分隔多选，如 "diagnosing,confirmed"
     limit: int = 50,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """项目列表：只看自己的（Day4 账户隔离）。"""
-    projects = project_service.list_projects(db, limit=limit, user_id=user.id)
+    """项目列表：只看自己的（Day4 账户隔离）；Day3 加 q+status 过滤。
+
+    - q: 标题模糊匹配（不分大小写）
+    - status: 逗号分隔多状态过滤（空 OR 任一匹配）；空 / 缺省 = 不过滤
+    - 仍按 created_at DESC 排序
+    """
+    statuses = [s.strip() for s in (status.split(",") if status else []) if s.strip()]
+    projects = project_service.list_projects(
+        db, limit=limit, user_id=user.id, q=q, statuses=statuses or None,
+    )
     return {"items": [_project_to_dict(p) for p in projects]}
 
 

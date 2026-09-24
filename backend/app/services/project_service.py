@@ -28,12 +28,29 @@ def get_project(db: Session, project_id: int) -> Project | None:
 
 
 def list_projects(db: Session, limit: int = 50, offset: int = 0,
-                  user_id: int | None = None) -> list[Project]:
-    """按创建时间倒序列出项目（Day4：传 user_id 则只看该用户的）。"""
-    q = db.query(Project)
+                  user_id: int | None = None,
+                  q: str | None = None,
+                  statuses: list[str] | None = None) -> list[Project]:
+    """按创建时间倒序列出项目（Day4：传 user_id 则只看该用户的）。
+
+    Day3 列表增强：
+    - q: 标题模糊匹配（LIKE，不分大小写）；空 / None = 不过滤
+    - statuses: 状态白名单（IN）；空 / None = 不过滤
+    """
+    query = db.query(Project)
     if user_id is not None:
-        q = q.filter(Project.user_id == user_id)
-    return q.order_by(Project.created_at.desc()).offset(offset).limit(limit).all()
+        query = query.filter(Project.user_id == user_id)
+    if q:
+        # SQLAlchemy 不分大小写：func.lower(col).like(func.lower(:v))
+        # 标题前端无大小写要求，Python 侧先 lower 更省力
+        query = query.filter(Project.title.ilike(f"%{q.strip()}%"))
+    if statuses:
+        # 空串 / 未知状态过滤掉，避免脏数据导致 IN 空集
+        valid = [s for s in statuses if s]
+        if valid:
+            query = query.filter(Project.status.in_(valid))
+    # created_at DESC + id DESC：同秒创建的项目用 id（自增）兜底稳定排序
+    return query.order_by(Project.created_at.desc(), Project.id.desc()).offset(offset).limit(limit).all()
 
 
 def update_project(db: Session, project_id: int, **fields) -> Project | None:
