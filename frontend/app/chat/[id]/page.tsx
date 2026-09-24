@@ -282,8 +282,10 @@ export default function ChatPage() {
       }
       if (lastPhase === "done" && opts?.explicitConfirm) {
         // 确认收尾 → 展示联系承诺横幅，稍后跳方案展示页
+        // replace 而非 push：聊天→方案是流程推进而非新层级，
+        // 否则「返回」会回到已完成的聊天页，历史栈越积越深
         setConfirmBanner(true);
-        setTimeout(() => router.push(`/project/${projectId}`), 2500);
+        setTimeout(() => router.replace(`/project/${projectId}`), 2500);
       }
     } catch (e) {
       setError(String(e));

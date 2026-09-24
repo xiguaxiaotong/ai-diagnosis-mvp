@@ -55,9 +55,9 @@ function Icon({ name, size = 18 }: { name: keyof typeof ICONS; size?: number }) 
 const SCENARIOS = [
   {
     icon: "chat",
-    title: "奶茶店 AI 客服",
-    desc: "自动回微信、查菜单、处理预约",
-    idea: "我想做一个自动回复客户微信消息的 AI 客服，能查菜单、处理预约",
+    title: "智能客服 AI",
+    desc: "自动回复咨询、解答常见问题、复杂问题转人工",
+    idea: "我想做一个智能客服，自动回复客户咨询，常见问题让 AI 解答，复杂问题再转人工",
   },
   {
     icon: "book",
@@ -99,6 +99,9 @@ export default function Home() {
   // 空提交引导：按钮不再静默禁用，点击时明确告诉用户还缺什么
   const [hint, setHint] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 连点守卫：setState 是异步的，双击太快时两次点击都能通过 creating 检查 → 建两个项目。
+  // ref 同步置位，第二次点击当场拦下
+  const creatingRef = useRef(false);
   // 右下角用户菜单：avatar 弹窗（个人信息/退出），替代原右上角角标
   const [menuOpen, setMenuOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -133,7 +136,9 @@ export default function Home() {
   // 创建新诊断项目：title 取想法前 20 字，raw_idea 存全文
   async function startDiagnosis() {
     const text = idea.trim();
-    if (creating) return;
+    // ref 守卫：setState 异步，双击太快时两次都通过 state 检查 → 建两个项目；
+    // 检查放最前、置位放在真正发起创建处（此前都是同步代码，不会漏拦）
+    if (creating || creatingRef.current) return;
     // 空输入 / 后端未连接不再静默拦截：给出明确提示 + 聚焦输入框，
     // 让用户知道「点了没反应」其实是缺了什么（移动端尤其重要）
     if (!text) {
@@ -154,6 +159,7 @@ export default function Home() {
       return;
     }
     setCreating(true);
+    creatingRef.current = true;
     setError(null);
     try {
       const project = await api<{ id: number }>("/api/projects", {
@@ -164,6 +170,7 @@ export default function Home() {
     } catch (e) {
       setError(String(e));
       setCreating(false);
+      creatingRef.current = false; // 失败后允许重试
     }
   }
 
@@ -205,22 +212,40 @@ export default function Home() {
       </p>
 
       {/* 场景卡：不知道写什么 → 点一张直接填入（功能性视觉，替代轮换示例文字）
-          移动端（<560px）切「图标左 + 文案右」紧凑横排并缩小图标，
-          避免三张竖排大卡把输入框挤出首屏；桌面端保持竖排大卡 */}
+          桌面端：三列竖排大卡；手机端（≤640px）：一行三列迷你卡（总高 ≤80px），
+          图标去色块缩至 20px、描述隐藏、标题 12px 不换行——输入框必须留在首屏。
+          布局尺寸全部收进 class（媒体查询才压得过 inline style），颜色仍走主题 inline。 */}
       <style jsx global>{`
-        .sc-card { display: flex; flex-direction: column; align-items: flex-start; gap: ${space.sm}px; }
+        .sc-cards {
+          display: flex; flex-wrap: wrap; justify-content: center;
+          gap: ${space.md}px; text-align: left;
+        }
+        .sc-card {
+          display: flex; flex-direction: column; align-items: flex-start; gap: ${space.sm}px;
+          flex: 1 1 30%; min-width: 200px; max-width: 260px;
+          padding: ${space.base + 2}px;
+        }
         .sc-body { display: flex; flex-direction: column; gap: 3px; }
-        @media (max-width: 559px) {
-          .sc-card { flex-direction: row; align-items: center; gap: ${space.md}px; padding: ${space.sm}px ${space.md}px; }
-          .sc-icon { width: 30px; height: 30px; }
-          .sc-icon svg { width: 16px; height: 16px; }
+        .sc-icon { width: 36px; height: 36px; }
+        .sc-title { font-size: ${font.base}px; font-weight: 600; line-height: 1.4; }
+        .sc-desc { font-size: ${font.sm}px; line-height: ${lineHeight.tight}; }
+        @media (max-width: 640px) {
+          .sc-cards { gap: 8px; }
+          .sc-card {
+            flex: 1 1 0; min-width: 0; max-width: none;
+            flex-direction: column; align-items: center; text-align: center;
+            padding: 10px 4px; gap: 4px;
+          }
+          .sc-body { gap: 0; }
+          .sc-icon { width: 20px; height: 20px; background: transparent !important; }
+          .sc-icon svg { width: 20px; height: 20px; }
+          .sc-title { font-size: 12px; line-height: 1.2; white-space: nowrap; }
+          .sc-desc { display: none; }
         }
       `}</style>
       <div
-        style={{
-          display: "flex", flexWrap: "wrap", justifyContent: "center",
-          gap: space.md, marginBottom: space.xl, textAlign: "left",
-        }}
+        className="sc-cards"
+        style={{ marginBottom: space.xl }}
       >
         {SCENARIOS.map((s) => (
           <button
@@ -232,8 +257,6 @@ export default function Home() {
               textareaRef.current?.focus();
             }}
             style={{
-              flex: "1 1 30%", minWidth: 200, maxWidth: 260,
-              padding: `${space.base + 2}px ${space.base + 2}px`,
               background: colors.bg.surface,
               border: borderStyle.card, borderRadius: radius.lg,
               boxShadow: colors.shadow.card,
@@ -252,10 +275,10 @@ export default function Home() {
               <Icon name={s.icon} size={19} />
             </span>
             <span className="sc-body">
-              <span style={{ fontSize: font.base, fontWeight: 600, color: colors.text.primary }}>
+              <span className="sc-title" style={{ color: colors.text.primary }}>
                 {s.title}
               </span>
-              <span style={{ fontSize: font.sm, color: colors.text.secondary, lineHeight: lineHeight.tight }}>
+              <span className="sc-desc" style={{ color: colors.text.secondary }}>
                 {s.desc}
               </span>
             </span>

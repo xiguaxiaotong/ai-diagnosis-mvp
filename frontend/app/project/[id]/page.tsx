@@ -206,8 +206,9 @@ export default function ProjectPage() {
   const [previewImg, setPreviewImg] = useState<string | null>(null);
 
   // 移动端右滑返回（辅助手势）：固定回该项目诊断对话页（层级路由栈，不跨项目）
+  // replace 而非 push：方案→聊天来回穿梭不产生重复历史，浏览器返回不绕圈
   useSwipeBack(useCallback(() => {
-    if (d) router.push(`/chat/${d.id}`);
+    if (d) router.replace(`/chat/${d.id}`);
   }, [d, router]));
 
   /** 复制纯文本方案（clipboard API + 老 API 兜底） */
