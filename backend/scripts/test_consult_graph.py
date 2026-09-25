@@ -28,7 +28,15 @@ def fake_chat(messages, **kwargs):
     return CONSULT_REPLY if "方案顾问" in prompt else UNDERSTAND_JSON
 
 
+def fake_stream(messages, **kwargs):
+    # consult_node 走流式 stream_chat（SSE 改造后），必须一并 stub，
+    # 否则真调 DeepSeek API（费 token 且断言结果随机）
+    prompt = messages[0]["content"]
+    return iter([CONSULT_REPLY] if "方案顾问" in prompt else [UNDERSTAND_JSON])
+
+
 model_client.chat_client.chat = fake_chat
+model_client.chat_client.stream_chat = fake_stream
 
 from app.db.database import SessionLocal  # noqa: E402
 from app.db.models import Project  # noqa: E402

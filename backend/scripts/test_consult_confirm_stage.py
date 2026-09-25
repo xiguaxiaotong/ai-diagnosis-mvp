@@ -51,7 +51,13 @@ def fake_chat(messages, **kwargs):
     return json.dumps(data, ensure_ascii=False)
 
 
+def fake_stream(messages, **kwargs):
+    # consult_node 走流式 stream_chat（SSE 改造后），一并 stub 防真调 API
+    return iter([fake_chat(messages, **kwargs)])
+
+
 model_client.chat_client.chat = fake_chat
+model_client.chat_client.stream_chat = fake_stream
 
 from app.agent.graph import diagnosis_graph  # noqa: E402
 from app.services.diagnosis_service import _config, chat_turn  # noqa: E402

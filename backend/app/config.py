@@ -18,10 +18,13 @@ ROOT_DIR = BASE_DIR.parent
 load_dotenv(ROOT_DIR / ".env")
 
 # ---------- 本地数据路径 ----------
+# W7 Day7：四个路径全部支持 env 覆盖（测试隔离用——测试脚本设临时目录，
+# 不污染 backend/data 主库；生产不设 env 即走默认值，行为不变）
 DATA_DIR = BASE_DIR / "data"
-CHROMA_DIR = DATA_DIR / "chroma"
-CASES_DIR = DATA_DIR / "cases"
-SQLITE_PATH = DATA_DIR / "sqlite.db"
+CHROMA_DIR = Path(os.getenv("CHROMA_DIR") or (DATA_DIR / "chroma"))
+CASES_DIR = Path(os.getenv("CASES_DIR") or (DATA_DIR / "cases"))
+SQLITE_PATH = Path(os.getenv("SQLITE_PATH") or (DATA_DIR / "sqlite.db"))
+CHECKPOINTS_PATH = Path(os.getenv("CHECKPOINTS_PATH") or (DATA_DIR / "checkpoints.sqlite"))
 
 # ---------- 对话模型（DeepSeek，OpenAI 兼容协议） ----------
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")

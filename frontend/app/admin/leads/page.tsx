@@ -156,6 +156,24 @@ export default function AdminLeadsPage() {
       >
         <ShieldCheck size={22} color={colors.brand.primary} />
         <h1 style={{ margin: 0, fontSize: font.xl }}>运营后台 · Leads 跟进</h1>
+        <Link
+          href="/admin/cases"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            marginLeft: "auto",
+            padding: `${space.sm}px ${space.md}px`,
+            background: colors.bg.surface,
+            color: colors.brand.linkText,
+            border: `1px solid ${colors.brand.primary}`,
+            borderRadius: radius.base,
+            textDecoration: "none",
+            fontSize: font.sm,
+            minHeight: touch.base,
+          }}
+        >
+          案例库管理 →
+        </Link>
         <a
           href={`${(typeof window !== "undefined" && (window as any).__API_BASE) || "http://localhost:8000"}/api/admin/leads/export.csv` +
             (activeStatuses.size > 0 && activeStatuses.size < STATUS_OPTIONS.length
@@ -192,7 +210,6 @@ export default function AdminLeadsPage() {
             display: "inline-flex",
             alignItems: "center",
             gap: space.xs,
-            marginLeft: "auto",
             padding: `${space.sm}px ${space.md}px`,
             background: colors.brand.primary,
             color: colors.text.inverse,

@@ -116,7 +116,12 @@ def main() -> None:
     try:
         from app.db.models import Project
         tid = db.get(Project, pid).thread_id
-        assert tid and str(pid) not in tid, f"thread_id 应为 uuid: {tid}"
+        # 断言 uuid4 hex 格式（32 位十六进制），而不是「不含 pid 字符串」——
+        # 干净库首条项目 pid=1，"1" 大概率撞上 uuid 里的字符，旧断言必误报
+        assert (
+            tid and len(tid) == 32
+            and all(c in "0123456789abcdef" for c in tid)
+        ), f"thread_id 应为 uuid hex: {tid}"
     finally:
         db.close()
     print(f"[1] thread_id 唯一 OK：{tid[:8]}…（非自增 id）")

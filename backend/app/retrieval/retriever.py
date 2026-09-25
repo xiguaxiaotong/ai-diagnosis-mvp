@@ -44,15 +44,24 @@ def retrieve_cases(query: str, top_k: int = 3,
         return []
 
     # 联 SQLite 取案例标题（vector_id 存的是 doc_id 前缀 case-{id}）
+    # W7 Day7：只取已上架（published）案例——下架案例检索不召回，但向量保留可重新上架
     results: list[dict[str, Any]] = []
     db = SessionLocal()
     try:
-        cases = db.query(Case).filter(Case.vector_id.in_(list(best))).all()
+        cases = (
+            db.query(Case)
+            .filter(Case.vector_id.in_(list(best)))
+            .filter(Case.published == True)  # noqa: E712
+            .all()
+        )
         title_by_vector = {c.vector_id: c for c in cases}
         for doc_id, h in sorted(best.items(), key=lambda kv: -kv[1]["score"]):
             case = title_by_vector.get(doc_id)
+            if case is None:
+                # 下架了，或向量库里有孤儿 chunk（案例已删但向量残留）→ 跳过
+                continue
             results.append({
-                "title": case.title if case else doc_id,
+                "title": case.title,
                 "industry": (case.industry if case else None)
                             or h["metadata"].get("industry") or "",
                 "summary": (case.summary if case else "") or h["text"][:120],

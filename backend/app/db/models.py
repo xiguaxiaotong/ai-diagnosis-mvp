@@ -11,7 +11,7 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -151,6 +151,15 @@ class Case(Base):
     review_status: Mapped[str] = mapped_column(
         String(16), default=REVIEW_PENDING, server_default=REVIEW_PENDING,
     )  # 审核状态：pending 待核验 / verified 已核验
+
+    # W7 Day7：上下架（admin 案例库管理）。
+    # 与 review_status 严格分离——两个正交维度：
+    # - review_status 数据核验口径：这条报价数据可不可信（核验流程用，不影响检索）
+    # - published   上下架：这条案例参不参与检索召回（下架 = 检索不返回，
+    #   但 DB 行/向量/正文全保留，随时可重新上架）
+    published: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("1"),
+    )
 
 
 class PasswordResetToken(Base):

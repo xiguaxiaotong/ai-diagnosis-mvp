@@ -6,6 +6,10 @@ Day6 新增：
 - POST /api/admin/leads/{id}/notes        添加手动跟进（manual note）
 - GET  /api/admin/projects/{id}           admin 看任意项目（含对话回放 messages）
 - GET  /api/admin/leads/export.csv        CSV 导出（运营日报用）
+Day7 新增：
+- GET   /api/admin/cases                  案例库列表（含下架的；结构化字段全量）
+- GET   /api/admin/cases/retrieve-preview 检索预览（真实用户问题预演线上召回）
+- PATCH /api/admin/cases/{id}             上下架（下架 = 检索不召回，数据全保留）
 
 设计要点：
 - PATCH /api/admin/leads/{id} 改 status 时自动写一条 status_change 类型的 LeadNote，
@@ -13,9 +17,12 @@ Day6 新增：
 - 状态变更 system note 是 admin_id 标记自己（谁改的）——Day8 m6 扩展审计时直接用
 - admin 看任意项目：复用 diagnosis.py 的 detail 逻辑但绕过 user_id 校验
 - 日志手机号脱敏在 app.infra.callbacks.PhoneMaskingFilter 统一处理（源头脱敏）
+- 案例上下架与 review_status（数据核验）正交：published 管检索可见性，
+  review_status 管数据可信度，互不干扰
+- 修 Day6 遗留：export.csv 曾重复注册两次（同 path 同 method，第二个是死代码），已删
 
 不做的（先聚焦，留待 m6/m7）：
-- 用户列表 / 案例审核（Day6 用户明示「按 8-9 周节奏」）
+- 用户列表 / 案例审核（按 8-9 周节奏，Day8 再开）
 - 操作审计日志（合并到第 8 周 m6 后台统一做，admin_id 已记入 lead_notes）
 - 留资推送通知（后置等邮件/短信触达）
 """
@@ -34,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import require_admin
 from app.db.database import get_db
-from app.db.models import Conversation, Lead, LeadNote, Project, User
+from app.db.models import Case, Conversation, Lead, LeadNote, Project, User
 from app.services import project_service
 
 logger = logging.getLogger("app.api.admin")
@@ -480,108 +487,118 @@ def get_admin_project_detail(
     }
 
 
-# ---------- Day6：CSV 导出（运营日报用） ----------
+# ---------- Day7：案例库管理（列表 / 检索预览 / 上下架） ----------
 
-@router.get("/leads/export.csv")
-def export_leads_csv(
-    status: str | None = None,
+def _case_admin_view(c: Case) -> dict[str, Any]:
+    """运营视角的案例全字段视图。
+
+    与用户侧 case_to_dict 的差异：带 W7 Day6/Day7 的结构化报价字段 + 上下架状态。
+    """
+    return {
+        "id": c.id,
+        "title": c.title,
+        "industry": c.industry,
+        "scenario": c.scenario,
+        "features": c.features,
+        "tech_stack": c.tech_stack,
+        "budget_min": c.budget_min,
+        "budget_max": c.budget_max,
+        "duration_weeks": c.duration_weeks,
+        "source_type": c.source_type,
+        "data_quality": c.data_quality,
+        "review_status": c.review_status,
+        "published": c.published,
+        "vector_ok": bool(c.vector_id),
+        "summary": c.summary,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    }
+
+
+@router.get("/cases/retrieve-preview")
+def cases_retrieve_preview(
+    query: str,
+    top_k: int = 5,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> StreamingResponse:
-    """导出 leads 为 CSV（Excel 友好 UTF-8 BOM + 逗号分隔）。
+) -> dict[str, Any]:
+    """检索预览：用真实用户问题预演线上检索结果。
 
-    列：ID, 姓名, 手机号, 公司, 备注, 用户名, 用户邮箱, 项目标题,
-        项目状态, lead 状态, 创建时间, 更新时间, 跟进数
-
-    - 范围：与 list 同源（q 暂不导出——CSV 报表是全量/按状态走）
-    - 流式返回（StreamingResponse）：leads 量级小（MBP 一天几条到几十条）但别一次性 dict 占内存
-    - CSV 注入防御：字段含逗号 / 引号 / 换行时 csv 库自动加双引号转义；
-      我们额外禁用 = / + / - / @ 公式前缀防 Excel 公式注入（CSV 注入是 OWASP Top 10 之一）
+    与诊断图 retrieve 节点完全同源（retrieve_cases），含下架过滤——
+    运营下架一条案例后，在这里搜，立刻能看到它不再出现。
+    ⚠️ 路由必须放在 /cases/{case_id} 类动态路由之前（export.csv 同款教训）。
     """
-    statuses = [s.strip() for s in (status.split(",") if status else []) if s.strip()]
-    valid_statuses = [s for s in statuses if s in Lead.ALL_STATUSES]
+    from app.retrieval.retriever import retrieve_cases
 
-    query = db.query(Lead).join(Project, isouter=True).join(User, isouter=True)
-    if valid_statuses:
-        query = query.filter(Lead.status.in_(valid_statuses))
-    leads = query.order_by(Lead.updated_at.desc(), Lead.id.desc()).all()
+    hits = retrieve_cases(query.strip(), top_k=min(max(top_k, 1), 10))
+    return {"query": query.strip(), "items": hits}
 
-    # 关联 project / user
-    project_ids = {l.project_id for l in leads if l.project_id is not None}
-    user_ids = {l.user_id for l in leads if l.user_id is not None}
-    projects_map: dict[int, Project] = {}
-    users_map: dict[int, User] = {}
-    if project_ids:
-        for p in db.scalars(select(Project).where(Project.id.in_(project_ids))).all():
-            projects_map[p.id] = p
-    if user_ids:
-        for u in db.scalars(select(User).where(User.id.in_(user_ids))).all():
-            users_map[u.id] = u
 
-    # 跟进数（一次查询）
-    from sqlalchemy import func as sa_func
-    note_counts: dict[int, int] = {}
-    if leads:
-        rows = db.execute(
-            select(LeadNote.lead_id, sa_func.count(LeadNote.id))
-            .where(LeadNote.lead_id.in_({l.id for l in leads}))
-            .group_by(LeadNote.lead_id)
-        ).all()
-        for lead_id, n in rows:
-            note_counts[lead_id] = n
+@router.get("/cases")
+def list_cases_admin(
+    q: str | None = None,
+    scenario: str | None = None,
+    review_status: str | None = None,
+    published: bool | None = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """运营视角案例列表（含下架的；user 侧检索接口只出上架的）。
 
-    def csv_safe(v: str | None) -> str:
-        """CSV 注入防御：把 = + - @ 开头的字段前缀 tab 字符，禁用 Excel/CMD 公式注入。
-        OWASP CSV Injection。
-        """
-        if v is None:
-            return ""
-        s = str(v)
-        # OWASP 推荐前缀处理
-        if s and s[0] in ("=", "+", "-", "@"):
-            s = "\t" + s
-        return s
+    - q：模糊匹配 title / industry / scenario / features
+    - scenario / review_status：精确匹配（scenario 前端给下拉）
+    - published：true/false 精确筛选；缺省 = 全部（含下架）
+    """
+    query = db.query(Case)
+    if q:
+        like = f"%{q.strip()}%"
+        from sqlalchemy import or_
+        query = query.filter(
+            or_(
+                Case.title.ilike(like),
+                Case.industry.ilike(like),
+                Case.scenario.ilike(like),
+                Case.features.ilike(like),
+            )
+        )
+    if scenario:
+        query = query.filter(Case.scenario == scenario.strip())
+    if review_status:
+        query = query.filter(Case.review_status == review_status.strip())
+    if published is not None:
+        query = query.filter(Case.published == published)
 
-    def gen():
-        # UTF-8 BOM：Excel 打开 CSV 不乱码（国内报表场景重要）
-        buf = io.StringIO()
-        buf.write("\ufeff")
-        w = csv.writer(buf)
-        w.writerow([
-            "ID", "姓名", "手机号", "公司", "备注",
-            "用户名", "用户邮箱",
-            "项目标题", "项目状态",
-            "Lead 状态", "创建时间", "更新时间", "跟进数",
-        ])
-        yield buf.getvalue()
-        buf.seek(0); buf.truncate()
-
-        for l in leads:
-            project = projects_map.get(l.project_id) if l.project_id else None
-            user = users_map.get(l.user_id) if l.user_id else None
-            row = [
-                l.id,
-                csv_safe(l.name),
-                csv_safe(l.phone),
-                csv_safe(l.company),
-                csv_safe(l.note),
-                csv_safe(user.username if user else None),
-                csv_safe(user.email if user else None),
-                csv_safe(project.title if project else None),
-                csv_safe(project.status if project else None),
-                csv_safe(l.status),
-                l.created_at.isoformat() if l.created_at else "",
-                l.updated_at.isoformat() if l.updated_at else "",
-                note_counts.get(l.id, 0),
-            ]
-            w.writerow(row)
-            yield buf.getvalue()
-            buf.seek(0); buf.truncate()
-
-    # 文件名：leads_YYYYMMDD_HHMMSS.csv
-    fname = f"leads_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
-    return StreamingResponse(
-        gen(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    cases = (
+        query.order_by(Case.id.desc())
+        .limit(min(limit, 500))
+        .all()
     )
+    return {"items": [_case_admin_view(c) for c in cases]}
+
+
+class CasePublishBody(BaseModel):
+    """上下架请求体。review_status 核验流转不在本期（案例审核是 Day8 议题）。"""
+    published: bool
+
+
+@router.patch("/cases/{case_id}")
+def update_case_admin(
+    case_id: int,
+    body: CasePublishBody,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """案例上下架。
+
+    下架 = published False：检索立即不召回（retrieve_cases 过滤），但
+    DB 行 / 向量 / 正文文件全保留，重新上架零成本。
+    """
+    case = db.get(Case, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="案例不存在")
+    case.published = body.published
+    db.commit()
+    db.refresh(case)
+    logger.info("admin %s 把案例 %s %s", admin.id, case_id,
+                "上架" if body.published else "下架")
+    return {"case": _case_admin_view(case)}

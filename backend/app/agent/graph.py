@@ -107,12 +107,14 @@ def build_graph():
     g.add_edge("finalize", END)
     g.add_edge("reject", END)
 
-    # SqliteSaver：checkpoint 落盘（backend/data/checkpoints.sqlite），
+    # SqliteSaver：checkpoint 落盘（默认 backend/data/checkpoints.sqlite，
+    # 可用 env CHECKPOINTS_PATH 覆盖——测试隔离用），
     # 重启后 interrupt 会话 / requirements 实体记忆全部保留。
     # 旧 MemorySaver 是进程内存，重启即失忆（曾导致用户重新进入项目后 AI 从头追问）。
     # check_same_thread=False：图执行在后台线程（SSE 心跳改造）+ 主线程 get_state，
     # SqliteSaver 内部有锁保证串行写。
-    conn = sqlite3.connect(str(DATA_DIR / "checkpoints.sqlite"), check_same_thread=False)
+    from app.config import CHECKPOINTS_PATH
+    conn = sqlite3.connect(str(CHECKPOINTS_PATH), check_same_thread=False)
     return g.compile(checkpointer=SqliteSaver(conn))
 
 
