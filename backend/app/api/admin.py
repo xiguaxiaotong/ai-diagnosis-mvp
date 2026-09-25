@@ -664,17 +664,32 @@ def convert_lead_to_worksheet(
           project.raw_idea→requirement_summary、project.thread_id→thread_id。
     幂等：lead 已有工单则直接返回既有工单（created=False），不重复建。
     转入写一条 system 时间线（「从 Lead #x 转入」）。
+
+    防御（人工验收 lead #2 500 的修复）：
+    - 悬空 project_id（项目已删但 lead 还挂着）：按「无项目」处理，
+      worksheet.project_id 写 None，不把悬空 id 带进 FK
+    - closed 的 lead 不允许转工单（409）：已关闭 = 线索归档/客户流失，
+      不该再进入交付跟单流程；要转先把 lead 状态改回非 closed
     """
     lead = db.get(Lead, lead_id)
     if lead is None:
         raise HTTPException(status_code=404, detail="lead 不存在")
+
+    if lead.status == Lead.STATUS_CLOSED:
+        raise HTTPException(
+            status_code=409,
+            detail="该 lead 已关闭（客户流失/归档），不能转为工单。如需跟进，请先把 lead 状态改为非「已关闭」再转。",
+        )
 
     existing = db.query(Worksheet).filter(Worksheet.lead_id == lead_id).first()
     if existing is not None:
         lead_ref = db.get(Lead, existing.lead_id) if existing.lead_id else None
         return {"worksheet": _ws_admin_view(existing, lead_ref), "created": False}
 
+    # 悬空引用防御：project_id 挂着的行不存在（历史脏数据 / FK 关闭期删的项目）
+    # → 按「无项目」处理，project_id 写 None，不把悬空 id 写进 worksheets
     project = db.get(Project, lead.project_id) if lead.project_id else None
+    resolved_project_id = project.id if project else None
 
     # 需求摘要映射：项目原始需求 → 回退 lead 备注 → 兜底文案（无 project 的 lead）
     requirement_summary = (
@@ -685,7 +700,7 @@ def convert_lead_to_worksheet(
 
     ws = Worksheet(
         lead_id=lead.id,
-        project_id=lead.project_id,
+        project_id=resolved_project_id,
         user_id=lead.user_id,
         customer_name=lead.name,
         contact=lead.phone,

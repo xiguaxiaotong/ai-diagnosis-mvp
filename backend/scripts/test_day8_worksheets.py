@@ -14,6 +14,8 @@
 - [7] 权限：非 admin 读写 403；未登录 401/403
 - [8] 404：不存在的 lead / 工单
 - [9] 无 project 的 lead 转工单：requirement_summary 回退 lead.note、thread_id 空
+- [10] bugfix 回归：悬空 project_id（项目已删）转工单不 500、project_id 置 None；
+      closed lead 转工单 409 + 提示文案；删除项目同步清 leads.project_id
 
 用法（在 backend/ 下，零 LLM token）：
     python scripts/test_day8_worksheets.py
@@ -42,6 +44,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.db.database import SessionLocal, init_db  # noqa: E402
 from app.db.models import Lead, Project, User  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import project_service  # noqa: E402
 
 PASS, FAIL = 0, 0
 
@@ -253,6 +256,101 @@ def main():
     check("不存在工单 404", r.status_code == 404)
     r = client.patch("/api/admin/worksheets/99999", json={"status": "won"}, headers=admin_h)
     check("流转不存在工单 404", r.status_code == 404)
+
+    # ---- [10] bugfix 回归：悬空引用 / closed 409 / 删除清引用 ----
+    print("\n[10] 悬空 project_id 转工单（lead #2 500 复现修复）")
+    from sqlalchemy import text as sa_text
+    db = SessionLocal()
+    # 造悬空引用：建 project + lead，然后 FK 关闭下直删 project 行
+    # （模拟历史脏数据产生路径：PRAGMA foreign_keys=ON 是后加的，
+    #   关闭期删项目 → leads.project_id 悬空）
+    p = Project(user_id=admin_uid, title="悬空测试项目", raw_idea="悬空项目的原始需求")
+    db.add(p)
+    db.flush()
+    lead_d = Lead(project_id=p.id, user_id=admin_uid, name="赵六",
+                  phone="13600000006", note="赵六的备注：悬空测试")
+    db.add(lead_d)
+    db.commit()
+    dangling_pid, dangling_lid = p.id, lead_d.id
+    db.close()
+
+    db = SessionLocal()
+    db.execute(sa_text("PRAGMA foreign_keys = OFF"))
+    db.execute(sa_text("DELETE FROM projects WHERE id = :pid"),
+               {"pid": dangling_pid})
+    db.execute(sa_text("PRAGMA foreign_keys = ON"))  # 同一连接上还原，防污染连接池
+    db.commit()
+    db.close()
+
+    r = client.post(f"/api/admin/leads/{dangling_lid}/worksheet", headers=admin_h)
+    check("悬空 project_id 转工单 200（原来 500）", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    ws_d = r.json()["worksheet"]
+    check("worksheet.project_id 置 None（不带悬空 id）",
+          ws_d["project_id"] is None, str(ws_d["project_id"]))
+    check("requirement_summary 回退 lead.note",
+          "悬空测试" in (ws_d["requirement_summary"] or ""), str(ws_d["requirement_summary"]))
+    check("thread_id 为空", ws_d["thread_id"] is None)
+
+    # 跑真清理脚本（子进程继承本测试的隔离 env → 落在测试库）：
+    # 验证 cleanup_dangling_refs.py 能把悬空引用清掉（上线前主库也要跑一次）
+    import subprocess
+    cp = subprocess.run(
+        [sys.executable, str(Path(__file__).parent / "cleanup_dangling_refs.py")],
+        capture_output=True, text=True,
+        encoding="utf-8", errors="replace",  # Windows 默认 GBK 解码子进程 UTF-8 输出会炸
+        env=dict(os.environ),
+    )
+    check("cleanup_dangling_refs.py 跑通", cp.returncode == 0,
+          (cp.stdout + cp.stderr)[-200:])
+    db = SessionLocal()
+    after = db.get(Lead, dangling_lid)
+    check("清理脚本把悬空 lead.project_id 置空",
+          after is not None and after.project_id is None,
+          str(after.project_id if after else "lead 不存在"))
+    db.close()
+
+    # closed lead → 409
+    print("\n[11] closed lead 转工单 409")
+    db = SessionLocal()
+    lead_c = Lead(user_id=admin_uid, name="钱七", phone="13500000007",
+                  note="已关闭线索")
+    db.add(lead_c)
+    db.commit()
+    closed_lid = lead_c.id
+    db.close()
+    r = client.patch(f"/api/admin/leads/{closed_lid}", json={"status": "closed"}, headers=admin_h)
+    assert r.status_code == 200, r.text
+    r = client.post(f"/api/admin/leads/{closed_lid}/worksheet", headers=admin_h)
+    check("closed lead 转工单 409", r.status_code == 409, f"实际 {r.status_code}")
+    check("409 提示文案明确", "已关闭" in r.json().get("detail", "")
+          and "不能转为工单" in r.json().get("detail", ""), r.text[:150])
+    n = client.get("/api/admin/worksheets", headers=admin_h).json()["items"]
+    check("409 未建出任何工单", all(w["lead_id"] != closed_lid for w in n))
+    # 状态改回非 closed 后可转（给运营一条自助解锁路径）
+    r = client.patch(f"/api/admin/leads/{closed_lid}", json={"status": "pending"}, headers=admin_h)
+    r = client.post(f"/api/admin/leads/{closed_lid}/worksheet", headers=admin_h)
+    check("改回非 closed 后可转", r.status_code == 200, f"实际 {r.status_code}")
+
+    # 删除项目同步清 leads.project_id
+    print("\n[12] 删除项目同步清引用")
+    db = SessionLocal()
+    p2 = Project(user_id=admin_uid, title="待删项目", raw_idea="删除清理测试")
+    db.add(p2)
+    db.flush()
+    lead_e = Lead(project_id=p2.id, user_id=admin_uid, name="孙八",
+                  phone="13400000008", note="删除清理")
+    db.add(lead_e)
+    db.commit()
+    del_pid, del_lid = p2.id, lead_e.id
+    db.close()
+    ok = project_service.delete_project(SessionLocal(), del_pid)
+    db = SessionLocal()
+    cleared = db.get(Lead, del_lid)
+    check("删除项目成功", ok is True)
+    check("lead 保留（不删线索）", cleared is not None)
+    check("lead.project_id 已置空", cleared is not None and cleared.project_id is None,
+          str(cleared.project_id if cleared else "lead 不存在"))
+    db.close()
 
     print(f"\n{'='*50}\n结果：{PASS} 通过 / {FAIL} 失败 · 测试库：{_TMP}")
     if FAIL == 0:

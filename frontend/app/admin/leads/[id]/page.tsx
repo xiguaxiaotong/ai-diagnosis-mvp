@@ -276,6 +276,26 @@ export default function LeadDetailPage() {
             >
               <ClipboardList size={14} /> 查看工单 #{data.worksheet_id}
             </Link>
+          ) : lead.status === "closed" ? (
+            // 已关闭的 lead 不允许转工单（后端 409 兜底，前端先置灰）
+            <span
+              title="该 lead 已关闭（客户流失/归档），不能转为工单。如需跟进，请先把状态改为非「已关闭」"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: space.xs,
+                padding: `${space.xs}px ${space.md}px`,
+                background: colors.bg.muted,
+                color: colors.text.tertiary,
+                border: `1px solid ${colors.border.row}`,
+                borderRadius: radius.md,
+                fontSize: font.sm,
+                cursor: "not-allowed",
+                minHeight: touch.base,
+              }}
+            >
+              <ClipboardList size={14} /> 已关闭，不可转工单
+            </span>
           ) : (
             <button
               onClick={convertToWorksheet}

@@ -17,6 +17,28 @@ export interface Project {
   updated_at: string | null;
 }
 
+/** 从后端错误响应提取可读文案：{"detail": "..."} → detail；HTML/纯文本截断。
+ *  500 等 FastAPI 未捕获异常时不裸抛 TypeError，落到「服务器开小差」兜底文案。 */
+function extractApiError(status: number, text: string): string {
+  try {
+    const parsed = JSON.parse(text);
+    const detail = parsed?.detail;
+    if (typeof detail === "string" && detail.trim()) {
+      return `（HTTP ${status}）${detail}`;
+    }
+    // FastAPI 校验错误的 detail 是数组 → 取 msg 拼接
+    if (Array.isArray(detail)) {
+      const msgs = detail.map((d: { msg?: string }) => d?.msg).filter(Boolean);
+      if (msgs.length) return `（HTTP ${status}）${msgs.join("；")}`;
+    }
+  } catch {
+    // 非 JSON（HTML 500 页等）→ 走截断兜底
+  }
+  if (status >= 500) return `服务器开小差了（HTTP ${status}），请稍后重试或联系管理员`;
+  const clipped = text.length > 160 ? text.slice(0, 160) + "…" : text;
+  return `请求失败（HTTP ${status}）${clipped ? "：" + clipped : ""}`;
+}
+
 // 统一的请求封装：自动带登录 token；401 清会话跳登录页
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
@@ -25,14 +47,20 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...(init?.headers as Record<string, string> | undefined),
   };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const resp = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  let resp: Response;
+  try {
+    resp = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  } catch {
+    // 网络层失败（后端没起 / 断网）——fetch 直接 reject TypeError，给出可读文案
+    throw new Error("无法连接服务器，请检查网络或后端服务状态");
+  }
   if (resp.status === 401) {
     handle401();
     throw new Error("未登录或登录已过期");
   }
   if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`API ${resp.status}: ${text}`);
+    const text = await resp.text().catch(() => "");
+    throw new Error(extractApiError(resp.status, text));
   }
   return resp.json() as Promise<T>;
 }

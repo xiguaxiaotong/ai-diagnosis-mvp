@@ -68,10 +68,21 @@ def update_project(db: Session, project_id: int, **fields) -> Project | None:
 
 
 def delete_project(db: Session, project_id: int) -> bool:
-    """删除项目（级联删除对话记录）。"""
+    """删除项目（级联删除对话记录）。
+
+    关联清理（W7 Day8 bugfix）：先显式把挂在本项目上的 leads.project_id /
+    worksheets.project_id 置空。schema 层两列都是 ON DELETE SET NULL，
+    FK PRAGMA 开着时 DB 会兜底，但历史上存在 FK 关闭期删项目产生的悬空引用
+    （lead #2 → project 168 案例），显式清理保证无论 FK 状态如何都不留脏数据。
+    """
     project = db.get(Project, project_id)
     if project is None:
         return False
+    from app.db.models import Lead, Worksheet
+    db.query(Lead).filter(Lead.project_id == project_id).update(
+        {Lead.project_id: None})
+    db.query(Worksheet).filter(Worksheet.project_id == project_id).update(
+        {Worksheet.project_id: None})
     db.delete(project)
     db.commit()
     return True
