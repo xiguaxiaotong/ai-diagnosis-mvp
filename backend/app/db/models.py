@@ -7,6 +7,8 @@
 - cases          案例（脱敏入库的历史项目，关联 Chroma 向量 id）
 - leads          留资（Day4；方案确认后的对接申请，含 5 态跟单状态机 Day5）
 - lead_notes     跟进记录（Day6；运营手动记录 + 状态变更自动写 system 类型）
+- worksheets     工单（Day8；lead 转入的交付跟单，含 5 态线性状态机）
+- worksheet_notes 工单时间线（Day8；结构对齐 lead_notes，前端复用同一时间线组件）
 """
 
 from datetime import date, datetime
@@ -271,3 +273,103 @@ class LeadNote(Base):
     )
 
     lead: Mapped["Lead"] = relationship(back_populates="notes")
+
+
+class Worksheet(Base):
+    """W7 Day8：工单（lead 成交意向明确后的交付跟单单据）。
+
+    与 lead 的分工：
+    - lead 是「售前线索」：用户留资 → 运营电话回访 → 判断意向
+    - worksheet 是「跟单交付」：运营确认可以做 → 从 lead 转入，跟踪
+      确认需求 / 沟通 / 报价 / 成交全过程
+    一个 lead 最多一张工单（unique），转入后 lead 保留（线索归档不删）。
+
+    状态机（线性主流程 + 任意非终态可关闭）：
+        to_confirm 待确认 → communicating 沟通中 → quoted 已报价 → won 已成交
+        （to_confirm / communicating / quoted 均可直接 → closed 已关闭）
+    - won / closed 是终态，不可再流转（误关走运营线下流程，MVP 不做重开）
+    - 合法流转白名单见 TRANSITIONS；非法流转 API 层直接 400
+    - 状态变更必须写时间线（worksheet_notes status_change 类型），与 lead 一致
+    """
+    __tablename__ = "worksheets"
+
+    STATUS_TO_CONFIRM = "to_confirm"      # 待确认：运营还没和客户对齐需求范围
+    STATUS_COMMUNICATING = "communicating"  # 沟通中：正在对接需求细节
+    STATUS_QUOTED = "quoted"              # 已报价：报价单已发
+    STATUS_WON = "won"                    # 已成交：签合同
+    STATUS_CLOSED = "closed"              # 已关闭：未成交 / 客户放弃 / 归档
+    ALL_STATUSES: tuple[str, ...] = (
+        STATUS_TO_CONFIRM, STATUS_COMMUNICATING, STATUS_QUOTED, STATUS_WON, STATUS_CLOSED,
+    )
+    # 终态：不可再流转
+    TERMINAL_STATUSES: tuple[str, ...] = (STATUS_WON, STATUS_CLOSED)
+    # 合法流转白名单（from → {to}）
+    TRANSITIONS: dict[str, frozenset[str]] = {
+        STATUS_TO_CONFIRM: frozenset({STATUS_COMMUNICATING, STATUS_CLOSED}),
+        STATUS_COMMUNICATING: frozenset({STATUS_QUOTED, STATUS_CLOSED}),
+        STATUS_QUOTED: frozenset({STATUS_WON, STATUS_CLOSED}),
+        STATUS_WON: frozenset(),
+        STATUS_CLOSED: frozenset(),
+    }
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 来源 lead（一对一；SET NULL：lead 删除后工单保留可继续跟）
+    lead_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"),
+        unique=True, index=True,
+    )
+    # 从 lead 带过来的关联（冗余存：同 lead 设计，源头删了工单不孤儿）
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    # 字段映射（Day8 验收口径）：
+    customer_name: Mapped[str] = mapped_column(String(64))   # ← lead.name
+    contact: Mapped[str] = mapped_column(String(64))         # ← lead.phone（联系方式）
+    company: Mapped[str | None] = mapped_column(String(128), nullable=True)  # ← lead.company
+    requirement_summary: Mapped[str] = mapped_column(Text, nullable=True)    # ← project.raw_idea
+    thread_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # ← project.thread_id 诊断线程
+
+    status: Mapped[str] = mapped_column(String(16), default=STATUS_TO_CONFIRM, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(),
+    )
+
+    notes: Mapped[list["WorksheetNote"]] = relationship(
+        back_populates="worksheet", cascade="all, delete-orphan",
+    )
+
+
+class WorksheetNote(Base):
+    """W7 Day8：工单时间线（结构对齐 LeadNote，前端复用同一时间线组件）。
+
+    note_type：
+    - status_change  系统自动写（状态流转时落地，强制要求：非法流转不落库，
+                    合法流转必落时间线）
+    - system         系统事件（如「从 Lead #x 转入」）
+    - manual         预留（本期 UI 只做流转+时间线，手动跟进后续按需开）
+    """
+    __tablename__ = "worksheet_notes"
+
+    NOTE_MANUAL = "manual"
+    NOTE_STATUS_CHANGE = "status_change"
+    NOTE_SYSTEM = "system"
+    ALL_NOTE_TYPES: tuple[str, ...] = (NOTE_MANUAL, NOTE_STATUS_CHANGE, NOTE_SYSTEM)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    worksheet_id: Mapped[int] = mapped_column(
+        ForeignKey("worksheets.id", ondelete="CASCADE"), index=True,
+    )
+    admin_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    note_type: Mapped[str] = mapped_column(String(16), default=NOTE_STATUS_CHANGE)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(),
+    )
+
+    worksheet: Mapped["Worksheet"] = relationship(back_populates="notes")

@@ -172,6 +172,23 @@ export default function AdminCasesPage() {
         >
           ← Leads 跟进
         </Link>
+        <Link
+          href="/admin/worksheets"
+          style={{
+            padding: `${space.sm}px ${space.md}px`,
+            background: colors.bg.surface,
+            color: colors.brand.linkText,
+            border: `1px solid ${colors.brand.primary}`,
+            borderRadius: radius.base,
+            textDecoration: "none",
+            fontSize: font.sm,
+            minHeight: touch.base,
+            display: "inline-flex",
+            alignItems: "center",
+          }}
+        >
+          工单跟单 →
+        </Link>
       </header>
 
       {/* 检索预览卡 */}

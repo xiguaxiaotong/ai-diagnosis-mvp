@@ -1,16 +1,17 @@
 "use client";
 
 import {
-  ArrowLeft, Building2, MessageSquarePlus, Phone, Send,
+  ArrowLeft, Building2, ClipboardList, MessageSquarePlus, Phone, Send,
   StickyNote, ShieldCheck, User as UserIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../../lib/api";
 import { getUser, useRequireAuth } from "../../../../lib/auth";
 import { useTheme } from "../../../../lib/theme";
 import { font, fontFluid, radius, space, touch } from "../../../../lib/tokens";
+import { Timeline } from "../../../../components/admin/Timeline";
 
 // 5 态（与后端一致）
 const STATUS_OPTIONS = ["pending", "contacted", "quoted", "won", "closed"] as const;
@@ -75,6 +76,7 @@ interface LeadDetailData {
   project_summary: ProjectSummary | null;
   notes: AdminNote[];
   stats: { messages_count: number };
+  worksheet_id: number | null; // Day8：已转工单则非空
 }
 
 // ---- 5 态配色（与列表/ProjectPage 统一） ----
@@ -96,10 +98,7 @@ function statusFg(colors: ReturnType<typeof useTheme>["colors"], s: LeadStatus):
     case "closed": return colors.text.tertiary;
   }
 }
-function noteTypeColor(colors: ReturnType<typeof useTheme>["colors"], t: string): string {
-  // 系统记录（status_change + system）默认中性色；手动跟进用主题色突出
-  return t === "manual" ? colors.brand.primary : colors.text.tertiary;
-}
+// 时间线渲染已抽到 components/admin/Timeline.tsx（Day8：leads 与工单详情共用）
 
 export default function LeadDetailPage() {
   const { colors, borderStyle } = useTheme();
@@ -113,6 +112,8 @@ export default function LeadDetailPage() {
   const [noteContent, setNoteContent] = useState("");
   const [noteType, setNoteType] = useState<NoteType>("manual");
   const [submitting, setSubmitting] = useState(false);
+  const [converting, setConverting] = useState(false);
+  const router = useRouter();
 
   // SSR 阶段 getUser() 拿不到（window undefined），推迟到 hydration
   useEffect(() => {
@@ -159,6 +160,22 @@ export default function LeadDetailPage() {
     } catch (e) {
       setData(old);
       alert("状态更新失败：" + String(e));
+    }
+  };
+
+  // Day8：lead 转工单（后端幂等：已转则直接返回既有工单）
+  const convertToWorksheet = async () => {
+    if (!data || converting) return;
+    setConverting(true);
+    try {
+      const r = await api<{ worksheet: { id: number }; created: boolean }>(
+        `/api/admin/leads/${leadId}/worksheet`,
+        { method: "POST" },
+      );
+      router.push(`/admin/worksheets/${r.worksheet.id}`);
+    } catch (e) {
+      alert("转工单失败：" + String(e));
+      setConverting(false);
     }
   };
 
@@ -237,6 +254,51 @@ export default function LeadDetailPage() {
       <header style={{ display: "flex", alignItems: "center", gap: space.sm, marginBottom: space.lg }}>
         <ShieldCheck size={22} color={colors.brand.primary} />
         <h1 style={{ margin: 0, fontSize: font.xl }}>Lead #{lead.id}</h1>
+        {/* Day8：转工单入口（已转则显示跳转） */}
+        <div style={{ marginLeft: "auto" }}>
+          {data.worksheet_id ? (
+            <Link
+              href={`/admin/worksheets/${data.worksheet_id}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: space.xs,
+                padding: `${space.xs}px ${space.md}px`,
+                background: colors.status.successBg,
+                color: colors.status.successStrong,
+                border: `1px solid ${colors.status.successStrong}`,
+                borderRadius: radius.md,
+                textDecoration: "none",
+                fontSize: font.sm,
+                fontWeight: 600,
+                minHeight: touch.base,
+              }}
+            >
+              <ClipboardList size={14} /> 查看工单 #{data.worksheet_id}
+            </Link>
+          ) : (
+            <button
+              onClick={convertToWorksheet}
+              disabled={converting}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: space.xs,
+                padding: `${space.xs}px ${space.md}px`,
+                background: converting ? colors.bg.muted : colors.brand.primary,
+                color: converting ? colors.text.tertiary : colors.text.inverse,
+                border: "none",
+                borderRadius: radius.md,
+                fontSize: font.sm,
+                fontWeight: 600,
+                cursor: converting ? "not-allowed" : "pointer",
+                minHeight: touch.base,
+              }}
+            >
+              <ClipboardList size={14} /> {converting ? "转入中…" : "转为工单"}
+            </button>
+          )}
+        </div>
       </header>
 
       {/* 客户信息 */}
@@ -485,58 +547,8 @@ export default function LeadDetailPage() {
           </div>
         </div>
 
-        {/* 时间线列表 */}
-        {data.notes.length === 0 ? (
-          <p style={{ color: colors.text.tertiary, textAlign: "center", padding: space.lg }}>
-            暂无跟进记录
-          </p>
-        ) : (
-          <ol style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {data.notes.map((n) => (
-              <li
-                key={n.id}
-                style={{
-                  borderLeft: `2px solid ${noteTypeColor(colors, n.note_type)}`,
-                  paddingLeft: space.md,
-                  marginLeft: space.xs,
-                  paddingBottom: space.md,
-                  marginBottom: space.md,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: space.xs,
-                    fontSize: font.xs,
-                    color: colors.text.tertiary,
-                    marginBottom: space.xxs,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      color: noteTypeColor(colors, n.note_type),
-                    }}
-                  >
-                    {n.note_type === "manual" ? "手动跟进"
-                      : n.note_type === "status_change" ? "状态变更"
-                      : "系统记录"}
-                  </span>
-                  {n.admin_username && (
-                    <span>by @{n.admin_username}</span>
-                  )}
-                  <span style={{ marginLeft: "auto" }}>
-                    {n.created_at ? new Date(n.created_at).toLocaleString("zh-CN") : "—"}
-                  </span>
-                </div>
-                <div style={{ fontSize: font.base, color: colors.text.primary, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
-                  {n.content}
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
+        {/* 时间线列表（Day8 抽出共享组件，工单详情复用） */}
+        <Timeline notes={data.notes} />
       </section>
 
       {/* 占位：与 admin 列表首屏呼应 */}

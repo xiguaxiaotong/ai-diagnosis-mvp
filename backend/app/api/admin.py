@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import require_admin
 from app.db.database import get_db
-from app.db.models import Case, Conversation, Lead, LeadNote, Project, User
+from app.db.models import Case, Conversation, Lead, LeadNote, Project, User, Worksheet, WorksheetNote
 from app.services import project_service
 
 logger = logging.getLogger("app.api.admin")
@@ -329,6 +329,10 @@ def get_lead_detail(
         "project_summary": project_summary,
         "notes": [_note_to_dict(n, admins_map.get(n.admin_id)) for n in notes_db],
         "stats": {"messages_count": msg_count},
+        # Day8：已转工单的 lead 要在详情页提示/直接跳（unique，最多一张）
+        "worksheet_id": (
+            db.query(Worksheet.id).filter(Worksheet.lead_id == lead.id).scalar()
+        ),
     }
 
 
@@ -602,3 +606,247 @@ def update_case_admin(
     logger.info("admin %s 把案例 %s %s", admin.id, case_id,
                 "上架" if body.published else "下架")
     return {"case": _case_admin_view(case)}
+
+
+# ---------- Day8：工单（worksheet：lead 转入的交付跟单） ----------
+
+WS_STATUS_TEXT = {
+    Worksheet.STATUS_TO_CONFIRM: "待确认",
+    Worksheet.STATUS_COMMUNICATING: "沟通中",
+    Worksheet.STATUS_QUOTED: "已报价",
+    Worksheet.STATUS_WON: "已成交",
+    Worksheet.STATUS_CLOSED: "已关闭",
+}
+
+
+def _ws_admin_view(ws: Worksheet, lead: Lead | None = None) -> dict[str, Any]:
+    """运营视角工单数据（含状态中文文案 + 来源 lead 摘要）。"""
+    return {
+        "id": ws.id,
+        "lead_id": ws.lead_id,
+        "lead_name": lead.name if lead else None,
+        "project_id": ws.project_id,
+        "user_id": ws.user_id,
+        "customer_name": ws.customer_name,
+        "contact": ws.contact,
+        "company": ws.company,
+        "requirement_summary": ws.requirement_summary,
+        "thread_id": ws.thread_id,
+        "status": ws.status,
+        "status_text": WS_STATUS_TEXT.get(ws.status, ws.status),
+        "created_at": ws.created_at.isoformat() if ws.created_at else None,
+        "updated_at": ws.updated_at.isoformat() if ws.updated_at else None,
+    }
+
+
+def _ws_note_to_dict(note: WorksheetNote, admin: User | None) -> dict[str, Any]:
+    """工单时间线 → JSON（字段名与 _note_to_dict 对齐，前端复用同一时间线组件）。"""
+    return {
+        "id": note.id,
+        "worksheet_id": note.worksheet_id,
+        "admin_id": note.admin_id,
+        "admin_username": admin.username if admin else None,
+        "note_type": note.note_type,
+        "content": note.content,
+        "created_at": note.created_at.isoformat() if note.created_at else None,
+    }
+
+
+@router.post("/leads/{lead_id}/worksheet")
+def convert_lead_to_worksheet(
+    lead_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Day8：lead 转工单（字段映射 + 幂等）。
+
+    映射：name→customer_name、phone→contact、company→company、
+          project.raw_idea→requirement_summary、project.thread_id→thread_id。
+    幂等：lead 已有工单则直接返回既有工单（created=False），不重复建。
+    转入写一条 system 时间线（「从 Lead #x 转入」）。
+    """
+    lead = db.get(Lead, lead_id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="lead 不存在")
+
+    existing = db.query(Worksheet).filter(Worksheet.lead_id == lead_id).first()
+    if existing is not None:
+        lead_ref = db.get(Lead, existing.lead_id) if existing.lead_id else None
+        return {"worksheet": _ws_admin_view(existing, lead_ref), "created": False}
+
+    project = db.get(Project, lead.project_id) if lead.project_id else None
+
+    # 需求摘要映射：项目原始需求 → 回退 lead 备注 → 兜底文案（无 project 的 lead）
+    requirement_summary = (
+        (project.raw_idea if project else None)
+        or lead.note
+        or "（无原始需求记录）"
+    )
+
+    ws = Worksheet(
+        lead_id=lead.id,
+        project_id=lead.project_id,
+        user_id=lead.user_id,
+        customer_name=lead.name,
+        contact=lead.phone,
+        company=lead.company,
+        requirement_summary=requirement_summary,
+        thread_id=project.thread_id if project else None,
+        status=Worksheet.STATUS_TO_CONFIRM,
+    )
+    db.add(ws)
+    db.flush()  # 拿 ws.id 再写时间线
+
+    note = WorksheetNote(
+        worksheet_id=ws.id,
+        admin_id=admin.id,
+        note_type=WorksheetNote.NOTE_SYSTEM,
+        content=f"从 Lead #{lead.id}（{lead.name}）转入工单，状态：待确认",
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(ws)
+    logger.info("admin %s 把 lead %s 转为工单 %s", admin.id, lead_id, ws.id)
+    return {"worksheet": _ws_admin_view(ws, lead), "created": True}
+
+
+@router.get("/worksheets")
+def list_worksheets(
+    q: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """工单列表（按更新时间倒序）。
+
+    - q：模糊匹配 customer_name / contact / company / requirement_summary
+    - status：逗号分隔多选（与 leads 列表同口径）
+    """
+    statuses = [s.strip() for s in (status.split(",") if status else []) if s.strip()]
+    valid_statuses = [s for s in statuses if s in Worksheet.ALL_STATUSES]
+
+    query = db.query(Worksheet)
+    if q:
+        like = f"%{q.strip()}%"
+        from sqlalchemy import or_
+        query = query.filter(or_(
+            Worksheet.customer_name.ilike(like),
+            Worksheet.contact.ilike(like),
+            Worksheet.company.ilike(like),
+            Worksheet.requirement_summary.ilike(like),
+        ))
+    if valid_statuses:
+        query = query.filter(Worksheet.status.in_(valid_statuses))
+
+    worksheets = (
+        query.order_by(Worksheet.updated_at.desc(), Worksheet.id.desc())
+        .limit(min(limit, 200))
+        .all()
+    )
+    lead_ids = {w.lead_id for w in worksheets if w.lead_id is not None}
+    leads_map: dict[int, Lead] = {}
+    if lead_ids:
+        for l in db.scalars(select(Lead).where(Lead.id.in_(lead_ids))).all():
+            leads_map[l.id] = l
+    return {"items": [_ws_admin_view(w, leads_map.get(w.lead_id) if w.lead_id else None)
+                      for w in worksheets]}
+
+
+@router.get("/worksheets/{ws_id}")
+def get_worksheet_detail(
+    ws_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """工单详情：工单数据 + 时间线（倒序）。
+
+    时间线结构与 lead 详情一致（_ws_note_to_dict 对齐 _note_to_dict 字段名），
+    前端复用同一时间线组件。
+    """
+    ws = db.get(Worksheet, ws_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="工单不存在")
+
+    lead = db.get(Lead, ws.lead_id) if ws.lead_id else None
+    notes_db = (
+        db.query(WorksheetNote)
+        .filter(WorksheetNote.worksheet_id == ws_id)
+        .order_by(WorksheetNote.created_at.desc(), WorksheetNote.id.desc())
+        .all()
+    )
+    admin_ids = {n.admin_id for n in notes_db if n.admin_id is not None}
+    admins_map: dict[int, User] = {}
+    if admin_ids:
+        for a in db.scalars(select(User).where(User.id.in_(admin_ids))).all():
+            admins_map[a.id] = a
+
+    return {
+        "worksheet": _ws_admin_view(ws, lead),
+        # 合法下一步流转（前端据此渲染按钮；终态为空集 → 无按钮）
+        "next_statuses": sorted(Worksheet.TRANSITIONS.get(ws.status, frozenset())),
+        "notes": [_ws_note_to_dict(n, admins_map.get(n.admin_id)) for n in notes_db],
+    }
+
+
+class WorksheetStatusBody(BaseModel):
+    """工单状态流转请求体。只收 status，其它字段不允许 API 改。"""
+    status: str = Field(min_length=1, max_length=16)
+
+    @field_validator("status")
+    @classmethod
+    def _v_status(cls, v: str) -> str:
+        if v not in Worksheet.ALL_STATUSES:
+            raise ValueError(f"status 必须是 {list(Worksheet.ALL_STATUSES)} 之一")
+        return v
+
+
+@router.patch("/worksheets/{ws_id}")
+def transition_worksheet(
+    ws_id: int,
+    body: WorksheetStatusBody,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Day8：工单状态流转（状态机校验，非法流转 400）。
+
+    - 合法流转：落状态 + 强制写一条 status_change 时间线
+    - 非法流转（跳级 / 终态再动 / 倒流）：400 + 明确提示
+    """
+    ws = db.get(Worksheet, ws_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="工单不存在")
+
+    new_status = body.status
+    allowed = Worksheet.TRANSITIONS.get(ws.status, frozenset())
+    if new_status not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"非法流转：{WS_STATUS_TEXT.get(ws.status, ws.status)} → "
+                    f"{WS_STATUS_TEXT.get(new_status, new_status)}。"
+                    f"当前状态仅允许流转到 "
+                    f"{[WS_STATUS_TEXT.get(s) for s in allowed] or '（终态，不可再流转）'}"),
+        )
+
+    old_status = ws.status
+    ws.status = new_status
+    ws.updated_at = datetime.utcnow()
+
+    note = WorksheetNote(
+        worksheet_id=ws_id,
+        admin_id=admin.id,
+        note_type=WorksheetNote.NOTE_STATUS_CHANGE,
+        content=(f"状态：{WS_STATUS_TEXT.get(old_status, old_status)} → "
+                 f"{WS_STATUS_TEXT.get(new_status, new_status)}"),
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(ws)
+    db.refresh(note)
+    lead = db.get(Lead, ws.lead_id) if ws.lead_id else None
+    logger.info("admin %s 工单 %s 流转 %s → %s", admin.id, ws_id, old_status, new_status)
+    return {
+        "worksheet": _ws_admin_view(ws, lead),
+        "note": _ws_note_to_dict(note, admin),
+        "next_statuses": sorted(Worksheet.TRANSITIONS.get(new_status, frozenset())),
+    }

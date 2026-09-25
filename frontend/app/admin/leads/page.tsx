@@ -157,7 +157,7 @@ export default function AdminLeadsPage() {
         <ShieldCheck size={22} color={colors.brand.primary} />
         <h1 style={{ margin: 0, fontSize: font.xl }}>运营后台 · Leads 跟进</h1>
         <Link
-          href="/admin/cases"
+          href="/admin/worksheets"
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -172,7 +172,7 @@ export default function AdminLeadsPage() {
             minHeight: touch.base,
           }}
         >
-          案例库管理 →
+          工单跟单 →
         </Link>
         <a
           href={`${(typeof window !== "undefined" && (window as any).__API_BASE) || "http://localhost:8000"}/api/admin/leads/export.csv` +
