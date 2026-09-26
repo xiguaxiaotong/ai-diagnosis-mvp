@@ -1,8 +1,10 @@
 """预算测算（规则引擎）—— 收编自 scripts/test_w3d1.py + test_budget_constraint.py。
 
-全部纯函数，零 LLM 零 DB。budget_constraint 场景4 为 T-1 记录在案的
-存量失败：8e759df 话术改造删掉「无法交付」未同步断言（git 取证见
-backend/docs/TODO.md T-1），标 xfail 保持可见，等口径拍板后处理。
+全部纯函数，零 LLM 零 DB。T-1（budget_constraint 场景4 xfail）已于 W9 关闭：
+根因 = budget 节点 corpus 全量扫 requirements.values()，把交互脚手架
+（question_details 未选中的示例选项/问题原文）、summary 否定句、产品域词
+「进销存」当成计价信号，虚增集成加价；8e759df 话术断言未同步只是表因。
+定位/修复/验证全程见 scripts/t1_budget_trace.py 与 backend/docs/TODO.md T-1。
 """
 
 import pytest
@@ -129,11 +131,57 @@ def test_low_budget_converges():
     assert any("收敛" in a for a in b["assumptions"])
 
 
-@pytest.mark.xfail(reason="T-1 预算口径问题，等 trace 定位：8e759df 话术改造删掉"
-                          "「无法交付」措辞未同步断言（详见 backend/docs/TODO.md T-1），"
-                          "按指示保持存量失败可见，不改断言凑绿", strict=True)
 def test_budget_below_floor_warns():
-    # 预算 1000（< MIN_TOTAL）→ 保持现实成本 + 明确警示
+    # 预算 1000（< MIN_TOTAL）→ 保持现实成本区间 + 明确警示。
+    # 话术口径以 8e759df（P8 档位改造）为准：不再承诺「无法交付」，
+    # 而是提示低于该规模方案的最低可行成本、需协商缩减需求范围。
+    # （T-1 已关闭：旧断言 assert "无法交付" 是话术改造前的过期断言）
     b = estimate_budget(_constraint_plan(), {"mentioned_budget": "1000块钱"})
-    assert b["total_max"] == 40_000
-    assert "无法交付" in b["budget_match"]
+    assert b["total_min"] == 26_000 and b["total_max"] == 40_000, "预算过低不收敛、保持现实成本"
+    assert "低于该规模方案的最低可行成本" in b["budget_match"]
+    assert "协商" in b["budget_match"]
+
+
+# ---------- T-1 修复回归：corpus 只扫语义字段，脚手架/否定句/产品域词不虚增加价 ----------
+
+def test_question_details_do_not_inflate_price():
+    # 根因①：question_details 带着「未被用户选中的示例选项」（对接收银机）和
+    # 问题原文（需要和现有系统打通吗）——曾全量 values() 扫进 corpus，
+    # 用户明确拒绝对接仍被收 3 类集成加价（真实诊断定位，见 t1_budget_trace.py）
+    req = {
+        "mentioned_budget": None,
+        "question_details": [
+            {"question": "需要和现有系统打通吗？",
+             "examples": [{"label": "对接收银机", "note": "和门店收银数据打通"},
+                          {"label": "对接财务/电商", "note": "和财务软件同步"}]},
+        ],
+        "missing_info": ["是否需要对接现有系统（如收银机、财务软件）"],
+    }
+    b = estimate_budget(_constraint_plan(), req)
+    b0 = estimate_budget(_constraint_plan(), {"mentioned_budget": None})
+    assert b["line_items"] == b0["line_items"], "脚手架字段不得触发任何加价"
+    assert b["total_max"] == b0["total_max"]
+
+
+def test_negated_summary_not_integration():
+    # 根因①同源：summary 常含否定句（「不用对接收银机，独立使用」），
+    # 关键词引擎无否定语义，扫进 corpus 会把拒绝当需求
+    req = {"mentioned_budget": None, "summary": "不用对接收银机或财务软件，独立使用。"}
+    b = estimate_budget(_constraint_plan(), req)
+    assert not any(i["item"].startswith("系统集成") for i in b["line_items"]), "否定句不得触发集成加价"
+
+
+def test_product_domain_word_not_integration():
+    # 根因②：「进销存」是产品域词——用户要做的系统本身就是进销存，
+    # 不是要对接现有进销存（曾虚增一类 3k-6k 加价）
+    req = {"project_title": "进销存管理系统", "business_type": "零售/批发", "mentioned_budget": None}
+    b = estimate_budget(_constraint_plan(), req)
+    assert not any("ERP" in i["item"] for i in b["line_items"]), "产品域词不得触发 ERP 对接加价"
+
+
+def test_real_integration_still_charged():
+    # 修复不误伤：模块描述里的真实对接需求照常计价（test_integration_markup 的
+    # 对偶面——requirements 语义字段里明确说了要对接，也必须计价）
+    req = {"core_features": ["收银对接", "库存管理"], "mentioned_budget": None}
+    b = estimate_budget(_constraint_plan(), req)
+    assert any("收银/POS" in i["item"] for i in b["line_items"]), "真实对接需求仍应加价"

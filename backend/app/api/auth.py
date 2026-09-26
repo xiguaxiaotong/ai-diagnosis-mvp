@@ -16,7 +16,7 @@ MVP 设计（零新依赖）：
 import hashlib
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.config import ADMIN_USER_IDS, BASE_URL
 from app.db.database import get_db
 from app.db.models import AuthSession, PasswordResetToken, Project, User
+from app.infra.timeutil import utcnow
 from app.services.email import send_password_reset
 from app.services.rate_limit import check_rate_limit, client_ip
 
@@ -83,7 +84,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization.removeprefix("Bearer ").strip()
     session = db.get(AuthSession, token)
-    if session is None or session.expires_at < datetime.utcnow():
+    if session is None or session.expires_at < utcnow():
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     user = db.get(User, session.user_id)
     if user is None:
@@ -96,7 +97,7 @@ def _create_session(db: Session, user_id: int) -> str:
     db.add(AuthSession(
         token=token,
         user_id=user_id,
-        expires_at=datetime.utcnow() + timedelta(days=SESSION_DAYS),
+        expires_at=utcnow() + timedelta(days=SESSION_DAYS),
     ))
     db.commit()
     return token
@@ -360,7 +361,7 @@ def forgot_password(
         db.add(PasswordResetToken(
             token=token,
             user_id=user.id,
-            expires_at=datetime.utcnow() + timedelta(minutes=RESET_TTL_MINUTES),
+            expires_at=utcnow() + timedelta(minutes=RESET_TTL_MINUTES),
         ))
         db.commit()
         reset_url = f"{BASE_URL.rstrip('/')}/reset-password/{token}"
@@ -400,7 +401,7 @@ def reset_password(
         raise HTTPException(status_code=400, detail="重置链接无效")
     if record.used_at is not None:
         raise HTTPException(status_code=400, detail="重置链接已被使用过")
-    if record.expires_at < datetime.utcnow():
+    if record.expires_at < utcnow():
         raise HTTPException(status_code=400, detail="重置链接已过期，请重新申请")
 
     user = db.get(User, record.user_id)
@@ -408,6 +409,6 @@ def reset_password(
         raise HTTPException(status_code=400, detail="账号不存在")
 
     user.password_hash = _hash_password(body.new_password)
-    record.used_at = datetime.utcnow()
+    record.used_at = utcnow()
     db.commit()
     return {"ok": True, "message": "密码已重置，请使用新密码登录"}

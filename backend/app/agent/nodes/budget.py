@@ -38,10 +38,14 @@ DEMO_UNIT_PRICE = {
 }
 
 # 对接系统集成：每命中一类关键词的加价（元）
+# 注意（T-1 定位结论）：「进销存」「库存系统」是产品域词——用户要做的系统
+# 本身就是进销存（project_title「进销存管理系统」曾因此被当成对接目标，
+# 虚增一类 3k-6k 加价）。真实对接表述必含「对接/打通/同步」语义，
+# 由「现有系统对接」类兜住，产品域词不单独触发加价。
 INTEGRATION_KEYWORDS = {
     "收银/POS 对接": ("收银", "pos", "收款机"),
     "支付对接": ("支付", "微信支付", "支付宝"),
-    "ERP/进销存对接": ("erp", "进销存", "库存系统"),
+    "ERP 对接": ("erp",),
     "会员/CRM 对接": ("会员系统", "crm"),
     "短信/消息服务": ("短信", "消息推送", "通知服务"),
     "物流/外卖平台对接": ("物流", "外卖", "配送对接"),
@@ -56,6 +60,19 @@ MULTI_PLATFORM_PRICE = (10_000, 20_000)
 # 加急判定：提及一个月内上线
 URGENT_KEYWORDS = ("一个月内", "两周", "2 周", "两周内", "尽快上线", "加急")
 URGENT_RATE = (0.10, 0.20)
+
+# 参与 corpus 关键词扫描的 requirements 语义字段（白名单）。
+# question_details / missing_info 是交互脚手架——带着问题原文（「需要和
+# 现有系统打通吗？」）和未被用户选中的示例选项（「对接收银机」）；summary
+# 常含否定句（「不用对接收银机，独立使用」）。关键词引擎没有否定语义，
+# 全量 values() 扫描会把用户明确拒绝/没选的东西虚报成加价信号
+# （T-1 定位：真实诊断曾虚增 3 类集成加价 9k-18k，见 scripts/t1_budget_trace.py）。
+# 取舍：漏检（用户真要对接但功能清单没体现→后续人工沟通补报价）危害
+# 远小于虚增（直接把报价抬高吓跑用户）。
+REQ_TEXT_FIELDS = (
+    "project_title", "business_type", "core_features", "target_users",
+    "mentioned_budget", "mentioned_deadline", "pain_points",
+)
 
 # 最低报价兜底：低于这个数不现实
 MIN_TOTAL = 20_000
@@ -113,7 +130,7 @@ def estimate_budget(plan: dict, requirements: dict | None, tier: dict | None = N
     req_text = ""
     if requirements:
         req_text = " ".join(
-            str(v) for v in requirements.values() if isinstance(v, (str, list))
+            str(requirements.get(k) or "") for k in REQ_TEXT_FIELDS
         )
     corpus = f"{feat_text} {req_text}".lower()
 

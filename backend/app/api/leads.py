@@ -11,7 +11,6 @@
   —— 这保证 lead 不是「聊到一半就要求联系方式」（破坏体验），而是「方案确认后申请人工对接」
 """
 import re
-from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.db.models import Lead, Project, User
+from app.infra.timeutil import utcnow
 from app.services import project_service
 
 router = APIRouter(prefix="/api/projects", tags=["leads"])
@@ -119,7 +119,7 @@ def submit_lead(
         # 状态重置：用户主动重新提交 = 还想被联系，避免运营误标 done 后
         # 用户改主意却没人理
         existing.status = Lead.STATUS_PENDING
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = utcnow()
         lead = existing
     else:
         lead = Lead(

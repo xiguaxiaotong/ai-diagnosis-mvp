@@ -55,6 +55,7 @@ from app.db.models import (
     Worksheet,
     WorksheetNote,
 )
+from app.infra.timeutil import utcnow
 from app.services import project_service
 
 logger = logging.getLogger("app.api.admin")
@@ -259,7 +260,7 @@ def export_leads_csv(
             buf.truncate()
 
     # 文件名：leads_YYYYMMDD_HHMMSS.csv
-    fname = f"leads_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    fname = f"leads_{utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         gen(),
         media_type="text/csv; charset=utf-8",
@@ -423,7 +424,7 @@ def update_lead_status(
 
     old_status = lead.status
     lead.status = new_status
-    lead.updated_at = datetime.utcnow()
+    lead.updated_at = utcnow()
 
     # 自动写 status_change note（内容：「admin X 把状态从 A 改为 B」）
     note = LeadNote(
@@ -860,7 +861,7 @@ def transition_worksheet(
 
     old_status = ws.status
     ws.status = new_status
-    ws.updated_at = datetime.utcnow()
+    ws.updated_at = utcnow()
 
     note = WorksheetNote(
         worksheet_id=ws_id,
