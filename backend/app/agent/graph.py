@@ -49,7 +49,7 @@ from app.agent.state import DiagnosisState
 from app.agent.trace import traced
 
 
-def build_consult_subgraph(g: StateGraph) -> None:
+def build_consult_subgraph(g: StateGraph[DiagnosisState]) -> None:
     """咨询子图（W9 Day2 第一步拆出）。
 
     节点：route_intent / consult
@@ -67,7 +67,7 @@ def build_consult_subgraph(g: StateGraph) -> None:
     g.add_node("consult", traced("consult", consult_node))
 
 
-def build_confirmation_subgraph(g: StateGraph) -> None:
+def build_confirmation_subgraph(g: StateGraph[DiagnosisState]) -> None:
     """方案确认子图（W9 Day2 第一步拆出）。
 
     节点：wait_confirmation / revise / finalize / reject
@@ -88,18 +88,31 @@ def build_confirmation_subgraph(g: StateGraph) -> None:
     g.add_edge("reject", END)
 
 
-def build_graph():
-    """父图编排入口：三个子图构建函数 + 跨子图编排边 + checkpointer。
+def build_diagnosis_subgraph(g: StateGraph[DiagnosisState]) -> None:
+    """诊断子图（W9 Day2 第二步拆出，最大的一块）。
 
-    W8 Day1：每个节点用 traced() 包装（trace 中间层），节点函数签名与
-    图结构（节点/边/路由）完全不变——traced 只在执行前后记 trace。
-    W9 Day2：图拆三个子图构建函数（同构拆法，详见各 builder 注释）。
+    节点：understand / ask / wait_input / force_finish /
+          retrieve / generate / budget / feasibility / output
+
+    字段归属（state.py 施工图）：
+      读：raw_idea / messages / requirements / budget_tier /
+          revision_feedback（revise 重跑时） / error
+      写：requirements / budget_tier / confirmed_pain_points（需求子状态）；
+          retrieved_cases / plan / budget / feasibility / full_solution /
+          final_output（方案子状态）；needs_clarify / clarify_questions /
+          clarify_round / clarify_exhausted / question_details /
+          pain_points（交互子状态）；messages / error（顶层）
+
+    自有边（区域内闭环）：
+      understand → check ─ask──→ ask → wait_input（interrupt 等输入）
+                   ├─done─→ retrieve → generate → budget → feasibility → output
+                   └─force→ force_finish → retrieve
+    跨子图编排（父图接）：wait_input → route_intent（回答先分流）、
+      output → wait_confirmation、revise → retrieve（修改重跑入口）。
+
+    同构拆法：节点名/拓扑不变（存量 checkpoint 兼容，详见
+    build_consult_subgraph 注释）。
     """
-    g = StateGraph(DiagnosisState)
-    build_consult_subgraph(g)
-    build_confirmation_subgraph(g)
-
-    # ---------- 诊断区（第二步拆出前的内联形态，节点+边原样） ----------
     g.add_node("understand", traced("understand", understand_node))
     g.add_node("ask", traced("ask", ask_node))
     g.add_node("wait_input", traced("wait_input", wait_input_node))
@@ -121,7 +134,23 @@ def build_graph():
     g.add_edge("generate", "budget")
     g.add_edge("budget", "feasibility")
     g.add_edge("feasibility", "output")
-    # ---------- 诊断区结束 ----------
+
+
+def build_graph():
+    """父图编排入口：三个子图构建函数 + 跨子图编排边 + checkpointer。
+
+    W8 Day1：每个节点用 traced() 包装（trace 中间层），节点函数签名与
+    图结构（节点/边/路由）完全不变——traced 只在执行前后记 trace。
+    W9 Day2：图拆三个子图构建函数（同构拆法，详见各 builder 注释）：
+      build_diagnosis_subgraph（需求理解循环 + 方案生成链，大）
+      build_consult_subgraph（意图分流 + 咨询回复，小）
+      build_confirmation_subgraph（方案确认循环，小）
+    父图只负责跨子图编排边与编译。
+    """
+    g = StateGraph(DiagnosisState)
+    build_diagnosis_subgraph(g)
+    build_consult_subgraph(g)
+    build_confirmation_subgraph(g)
 
     # ---------- 跨子图编排边（父图职责） ----------
     g.add_edge(START, "route_intent")
