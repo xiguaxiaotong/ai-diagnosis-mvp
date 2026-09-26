@@ -25,6 +25,8 @@ CHROMA_DIR = Path(os.getenv("CHROMA_DIR") or (DATA_DIR / "chroma"))
 CASES_DIR = Path(os.getenv("CASES_DIR") or (DATA_DIR / "cases"))
 SQLITE_PATH = Path(os.getenv("SQLITE_PATH") or (DATA_DIR / "sqlite.db"))
 CHECKPOINTS_PATH = Path(os.getenv("CHECKPOINTS_PATH") or (DATA_DIR / "checkpoints.sqlite"))
+# W8 Day1：节点级 trace 落盘路径（追加写 JSONL）。env 覆盖供测试隔离。
+TRACE_PATH = Path(os.getenv("TRACE_PATH") or (BASE_DIR / "logs" / "trace.jsonl"))
 
 # ---------- 对话模型（DeepSeek，OpenAI 兼容协议） ----------
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")

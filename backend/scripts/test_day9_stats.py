@@ -10,6 +10,11 @@
 - [5] 漏斗：won 工单单独统计；分母 0 时下游率 None
 - [6] 权限：非 admin 403、未登录 401/403
 - [7] admin 转工单路径连带数字联动（project→lead→worksheet→won 全链）
+- [8] W8 热身·跨零点回归：北京时间 23:59（昨日）/ 00:01（今日）的
+      数据必须分进正确的一天（旧 UTC 口径会把 0~8 点数据算进前一天）
+
+W8 热身后看板口径 = 北京时间（Asia/Shanghai）；造数仍用 UTC（库口径），
+断言经 _bj_date_key 换算到北京日期。
 
 用法（在 backend/ 下，零 LLM token）：
     python scripts/test_day9_stats.py
@@ -35,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.api.admin import _bj_date_key  # noqa: E402
 from app.db.database import SessionLocal, init_db  # noqa: E402
 from app.db.models import Lead, Project, User, Worksheet  # noqa: E402
 from app.main import app  # noqa: E402
@@ -155,19 +161,22 @@ def main():
     check("留资→工单 100%", f["rates"]["lead_to_worksheet"] == 100.0)
     check("工单→成交 50%", f["rates"]["worksheet_to_won"] == 50.0)
 
-    # ---- [4] 趋势 ----
+    # ---- [4] 趋势（北京时区分桶） ----
     print("\n[4] 趋势")
     t = s["trend"]
-    check("14 天补齐含今日", t[-1]["date"] == now.date().isoformat(), t[-1]["date"])
+    # 断言口径：北京日期（造数是 UTC，经 _bj_date_key 换算后比对）
+    today_key = _bj_date_key(now)
+    yesterday_key = _bj_date_key(yesterday)
+    check("14 天补齐含今日（北京日）", t[-1]["date"] == today_key,
+          f"末位 {t[-1]['date']} vs 北京今日 {today_key}")
     check("今日 projects=1 leads=1",
           t[-1]["projects"] == 1 and t[-1]["leads"] == 1, str(t[-1]))
-    yesterday_key = yesterday.date().isoformat()
     y_item = next((d for d in t if d["date"] == yesterday_key), None)
     check("昨日 projects=2 leads=1",
           y_item is not None and y_item["projects"] == 2 and y_item["leads"] == 1,
           str(y_item))
-    check("首日 = 13 天前", t[0]["date"] == (now - timedelta(days=13)).date().isoformat(),
-          t[0]["date"])
+    check("首日 = 13 天前（北京日）",
+          t[0]["date"] == _bj_date_key(now - timedelta(days=13)), t[0]["date"])
     check("趋势总和 = 总数（projects 3 / leads 2）",
           sum(d["projects"] for d in t) == 3 and sum(d["leads"] for d in t) == 2)
 
@@ -191,6 +200,33 @@ def main():
     check("非 admin 403", r.status_code == 403, f"实际 {r.status_code}")
     r = client.get("/api/admin/stats")
     check("未登录 401/403", r.status_code in (401, 403), f"实际 {r.status_code}")
+
+    # ---- [8] W8 热身：跨零点分桶回归（北京口径核心用例） ----
+    # 造两条贴着北京零点的数据：23:59（应归昨日）/ 00:01（应归今日）。
+    # 旧 UTC 口径下，北京 0~8 点的数据日期键停在前一天——正是本用例防的回归。
+    print("\n[8] 跨零点分桶（北京 23:59 / 00:01）")
+    from app.api.admin import _bj_midnight_utc
+    bj_mid = _bj_midnight_utc()  # 北京今日零点（UTC naive，与库同口径）
+    db = SessionLocal()
+    db.add(Project(user_id=uid, title="北京昨晚23:59",
+                   created_at=bj_mid - timedelta(minutes=1)))
+    db.add(Project(user_id=uid, title="北京今日00:01",
+                   created_at=bj_mid + timedelta(minutes=1)))
+    db.commit()
+    db.close()
+
+    r = client.get("/api/admin/stats", headers=admin_h)
+    s3 = r.json()
+    # projects.today：[7] 今日 1 条 + 跨零点 00:01 的 1 条 = 2；23:59 那条不算
+    check("today 含 00:01 不含 23:59",
+          s3["cards"]["projects"]["today"] == 2, str(s3["cards"]["projects"]))
+    t3 = s3["trend"]
+    today_item = next((d for d in t3 if d["date"] == _bj_date_key(bj_mid + timedelta(minutes=1))), None)
+    prev_item = next((d for d in t3 if d["date"] == _bj_date_key(bj_mid - timedelta(minutes=1))), None)
+    check("趋势：00:01 归北京今日",
+          today_item is not None and today_item["projects"] == 2, str(today_item))
+    check("趋势：23:59 归北京昨日",
+          prev_item is not None and prev_item["projects"] == 3, str(prev_item))
 
     print(f"\n{'='*50}\n结果：{PASS} 通过 / {FAIL} 失败 · 测试库：{_TMP}")
     if FAIL == 0:

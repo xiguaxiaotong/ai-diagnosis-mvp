@@ -47,27 +47,32 @@ from app.agent.nodes.output import output_node
 from app.agent.nodes.retrieve import retrieve_node
 from app.agent.nodes.understand import understand_node
 from app.agent.state import DiagnosisState
+from app.agent.trace import traced
 from app.config import DATA_DIR
 
 
 def build_graph():
-    """构建诊断图：追问循环（interrupt 等待输入）+ 5 轮强制结束 + 方案生成。"""
+    """构建诊断图：追问循环（interrupt 等待输入）+ 5 轮强制结束 + 方案生成。
+
+    W8 Day1：每个节点用 traced() 包装（trace 中间层），节点函数签名与
+    图结构（节点/边/路由）完全不变——traced 只在执行前后记 trace。
+    """
     g = StateGraph(DiagnosisState)
-    g.add_node("understand", understand_node)
-    g.add_node("ask", ask_node)
-    g.add_node("wait_input", wait_input_node)
-    g.add_node("force_finish", force_finish_node)
-    g.add_node("retrieve", retrieve_node)
-    g.add_node("generate", generate_node)
-    g.add_node("budget", budget_node)
-    g.add_node("feasibility", feasibility_node)
-    g.add_node("output", output_node)
-    g.add_node("wait_confirmation", wait_confirmation_node)
-    g.add_node("revise", revise_node)
-    g.add_node("finalize", finalize_node)
-    g.add_node("reject", reject_node)
-    g.add_node("route_intent", route_intent_node)
-    g.add_node("consult", consult_node)
+    g.add_node("understand", traced("understand", understand_node))
+    g.add_node("ask", traced("ask", ask_node))
+    g.add_node("wait_input", traced("wait_input", wait_input_node))
+    g.add_node("force_finish", traced("force_finish", force_finish_node))
+    g.add_node("retrieve", traced("retrieve", retrieve_node))
+    g.add_node("generate", traced("generate", generate_node))
+    g.add_node("budget", traced("budget", budget_node))
+    g.add_node("feasibility", traced("feasibility", feasibility_node))
+    g.add_node("output", traced("output", output_node))
+    g.add_node("wait_confirmation", traced("wait_confirmation", wait_confirmation_node))
+    g.add_node("revise", traced("revise", revise_node))
+    g.add_node("finalize", traced("finalize", finalize_node))
+    g.add_node("reject", traced("reject", reject_node))
+    g.add_node("route_intent", traced("route_intent", route_intent_node))
+    g.add_node("consult", traced("consult", consult_node))
 
     g.add_edge(START, "route_intent")
     g.add_conditional_edges(

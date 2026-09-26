@@ -336,7 +336,7 @@ export default function AdminDashboardPage() {
       </section>
 
       <p style={{ marginTop: space.lg, fontSize: font.xs, color: colors.text.tertiary }}>
-        数据实时查库 · 时区口径：UTC · 每日零点为界
+        数据实时查库 · 时区口径：北京时间（Asia/Shanghai）· 每日零点为界
       </p>
     </main>
   );

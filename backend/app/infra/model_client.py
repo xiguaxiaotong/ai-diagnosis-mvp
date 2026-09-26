@@ -69,18 +69,30 @@ class ChatClient:
     @log_duration("chat")
     def chat(self, messages: List[dict], temperature: float = CHAT_TEMPERATURE, **kwargs) -> str:
         """非流式对话，返回完整回复文本。自动记录耗时与 token 用量。"""
+        from app.agent.trace import llm_input_summary, record_llm
         start = time.perf_counter()
         resp = self._ensure_client().chat.completions.create(
             model=self.model, messages=messages, temperature=temperature, **kwargs
         )
         usage = resp.usage
+        elapsed = time.perf_counter() - start
         log_usage(
             self.model,
-            time.perf_counter() - start,
+            elapsed,
             prompt_tokens=getattr(usage, "prompt_tokens", None),
             completion_tokens=getattr(usage, "completion_tokens", None),
         )
-        return resp.choices[0].message.content or ""
+        content = resp.choices[0].message.content or ""
+        # W8 Day1：LLM 层 trace（模型/耗时/tokens/输入输出摘要）。
+        # record_llm 内部全兜底，写失败不影响主流程。
+        record_llm(
+            self.model, elapsed * 1000,
+            prompt_tokens=getattr(usage, "prompt_tokens", None),
+            completion_tokens=getattr(usage, "completion_tokens", None),
+            input_summary=llm_input_summary(messages),
+            output_summary=content[:200],
+        )
+        return content
 
     def stream_chat(
         self, messages: List[dict], temperature: float = CHAT_TEMPERATURE, **kwargs
@@ -90,6 +102,7 @@ class ChatClient:
         注意：不用 log_duration 装饰器——生成器惰性执行，装饰器只会
         测到生成器创建时间；真实耗时在流结束后由 log_usage 记录。
         """
+        from app.agent.trace import llm_input_summary, record_llm
         start = time.perf_counter()
         # DeepSeek 支持 stream_options.include_usage：最后一个事件携带 usage
         if "stream_options" not in kwargs:
@@ -102,16 +115,26 @@ class ChatClient:
             **kwargs,
         )
         usage = None
+        chunks: list[str] = []  # trace 输出摘要用（流式没有整体返回值）
         for event in stream:
             if event.usage is not None:
                 usage = event.usage
             if event.choices and event.choices[0].delta.content:
+                chunks.append(event.choices[0].delta.content)
                 yield event.choices[0].delta.content
+        elapsed = time.perf_counter() - start
         log_usage(
             self.model,
-            time.perf_counter() - start,
+            elapsed,
             prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
             completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+        )
+        record_llm(
+            self.model, elapsed * 1000,
+            prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+            completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+            input_summary=llm_input_summary(messages),
+            output_summary="".join(chunks)[:200],
         )
 
 

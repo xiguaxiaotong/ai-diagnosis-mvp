@@ -32,7 +32,7 @@ import csv
 import io
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -873,11 +873,40 @@ def transition_worksheet(
 
 TREND_DAYS = 14
 
+# W8 热身：看板统计时区口径改北京时间（Asia/Shanghai）。
+# 旧口径 UTC 的 bug：北京 0~8 点产生的数据会被算进「前一天」（UTC 日期
+# 还停在前一天），今日新增偏低、趋势错位一天。DB 里 created_at 仍存
+# UTC（func.now()，不动库），只在「分桶/过滤」时换算：北京零点 → UTC
+# 再比较。trend 的 date 键也是北京日期。
+from zoneinfo import ZoneInfo
+
+BJ_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _bj_now() -> datetime:
+    return datetime.now(BJ_TZ)
+
+
+def _bj_date_key(dt_utc: datetime | None) -> str | None:
+    """UTC naive datetime → 北京日期键（trend 分桶用）。"""
+    if dt_utc is None:
+        return None
+    return dt_utc.replace(tzinfo=timezone.utc).astimezone(BJ_TZ).date().isoformat()
+
+
+def _bj_midnight_utc(bj_days_ago: int = 0) -> datetime:
+    """北京「今天往前 bj_days_ago 天」的零点，换算成 UTC naive datetime。
+
+    DB 存 UTC，与 created_at 比较必须同口径（naive UTC）。
+    """
+    bj_today = _bj_now().date() - timedelta(days=bj_days_ago)
+    bj_midnight = datetime.combine(bj_today, dt_time.min, tzinfo=BJ_TZ)
+    return bj_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+
 
 def _count_today(db: Session, model, col) -> int:
-    """按 created_at >= 今日零点 计数（SQLite datetime 存 UTC ISO 串，日期比较安全）。"""
-    from datetime import time as dt_time
-    today_start = datetime.combine(datetime.utcnow().date(), dt_time.min)
+    """按 北京时间今日零点 计数（换算成 UTC 与库同口径后比较）。"""
+    today_start = _bj_midnight_utc()
     return (
         db.query(model)
         .filter(col >= today_start)
@@ -900,8 +929,6 @@ def get_admin_stats(
     空表安全：count 天然返回 0；trend 用日期字典补齐缺日（没数据的日期 = 0，
     不缺格），除零保护：分母 0 时转化率返回 None（前端显示 —）。
     """
-    from datetime import timedelta
-
     # ---- 统计卡片 ----
     total_users = db.query(User).count()
     total_projects = db.query(Project).count()
@@ -943,9 +970,10 @@ def get_admin_stats(
         },
     }
 
-    # ---- 近 14 天趋势：每日新增 projects / leads ----
-    since = datetime.utcnow() - timedelta(days=TREND_DAYS - 1)
-    since_date = since.date()
+    # ---- 近 14 天趋势：每日新增 projects / leads（北京时区分桶） ----
+    # since = 北京「13 天前零点」换算成的 UTC（库口径），保证窗口恰好 14 个北京日
+    since = _bj_midnight_utc(TREND_DAYS - 1)
+    since_date = (_bj_now() - timedelta(days=TREND_DAYS - 1)).date()
 
     proj_rows = (
         db.query(Project.created_at)
@@ -959,8 +987,8 @@ def get_admin_stats(
     )
 
     def _day_key(dt: datetime | None) -> str | None:
-        # created_at 是 UTC（func.now()），按 UTC 日期分桶（本地 dev 与线上口径一致）
-        return dt.date().isoformat() if dt else None
+        # created_at 是 UTC（func.now()），换算到北京时区后按北京日期分桶
+        return _bj_date_key(dt)
 
     proj_counts: dict[str, int] = {}
     for (dt,) in proj_rows:
@@ -985,3 +1013,30 @@ def get_admin_stats(
         })
 
     return {"cards": cards, "funnel": funnel, "trend": trend, "trend_days": TREND_DAYS}
+
+
+# ---------- W8 Day1：诊断调用链 trace 查询 ----------
+
+@router.get("/trace/{thread_id}")
+def get_trace(
+    thread_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """查某诊断会话的完整调用链（节点 + LLM 两层，时间序）。
+
+    thread_id 支持图内完整键（project-<uuid>）或裸 uuid（admin 页面常用）。
+    数据源 logs/trace.jsonl（追加写），只读不动；仅 admin 可见。
+    """
+    from app.agent.trace import read_trace
+
+    items = read_trace(thread_id)
+    logger.info("admin %s 查询 trace thread=%s 共 %d 条",
+                admin.id, thread_id, len(items))
+    return {
+        "thread_id": thread_id,
+        "count": len(items),
+        "node_count": sum(1 for r in items if r.get("type") == "node"),
+        "llm_count": sum(1 for r in items if r.get("type") == "llm"),
+        "items": items,
+    }
