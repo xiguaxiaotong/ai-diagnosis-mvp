@@ -214,11 +214,17 @@ def main():
     # ---- [3] 节点记录字段 ----
     print("\n[3] 节点记录字段")
     for r in node_recs:
+        start_ok = False
+        try:  # start 必须是真实 epoch 时刻（曾错用 perf_counter 得 1970+开机时长）
+            start_ok = datetime.fromisoformat(r.get("start", "")).year > 2020
+        except Exception:
+            pass
         check(f"[{r['node']}] 字段完整", all([
             isinstance(r.get("duration_ms"), int) and r["duration_ms"] >= 0,
             isinstance(r.get("input_summary"), str),
             isinstance(r.get("output_summary"), str),
-            "start" in r, "ts" in r,
+            start_ok,
+            "ts" in r,
             isinstance(r.get("llm_calls"), int),
             isinstance(r.get("tokens"), dict),
         ]), json.dumps(r, ensure_ascii=False)[:160])

@@ -110,7 +110,9 @@ def traced(node_name: str, fn: Callable) -> Callable:
         _tl.llm_calls = 0
         _tl.tokens = {"prompt": 0, "completion": 0}
 
-        start = time.perf_counter()
+        start = time.perf_counter()          # 耗时基准（单调钟，跨零点/校时安全）
+        start_at = datetime.now(timezone.utc)  # 开始时刻（epoch 钟；perf_counter 不是
+        #                                      epoch，拿它换算会得到 1970+开机时长）
         error = None
         interrupted = False
         result = None
@@ -133,7 +135,7 @@ def traced(node_name: str, fn: Callable) -> Callable:
                 "type": "node",
                 "thread_id": thread_id,
                 "node": node_name,
-                "start": datetime.fromtimestamp(start, timezone.utc).isoformat(),
+                "start": start_at.isoformat(),
                 "duration_ms": round((time.perf_counter() - start) * 1000),
                 "input_summary": _node_input_summary(state),
                 "output_summary": _summary(result),
