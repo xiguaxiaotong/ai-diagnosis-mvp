@@ -68,19 +68,21 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 /**
  * SSE 对话流专用 fetch：EventSource 不支持自定义 header，走 fetch + ReadableStream。
  * 已登录才应调用（调用方负责守卫）；401 时跳登录。
+ * body 支持 JSON 对象（默认）或 FormData（文件上传：浏览器自动带 multipart boundary）。
  */
 export async function apiStream(
   path: string,
   body: unknown,
 ): Promise<Response> {
   const token = getToken();
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   const resp = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      ...(isForm ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(body),
+    body: isForm ? (body as FormData) : JSON.stringify(body),
   });
   if (resp.status === 401) {
     handle401();
@@ -89,8 +91,13 @@ export async function apiStream(
   return resp;
 }
 
-/** PDF 导出等需要 Authorization 的下载：fetch blob → 触发浏览器下载。 */
-export async function apiDownload(path: string, filename: string): Promise<void> {
+/** PDF 导出等需要 Authorization 的下载：fetch blob → 触发浏览器下载。
+ *  文件名优先取响应 Content-Disposition（如 CSV 导出后端带 leads-xxx.csv），
+ *  没有则用 fallback。 */
+export async function apiDownload(
+  path: string,
+  fallbackName = "download",
+): Promise<void> {
   const token = getToken();
   const resp = await fetch(`${API_BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -104,7 +111,9 @@ export async function apiDownload(path: string, filename: string): Promise<void>
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename;
+  const cd = resp.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+  a.download = m ? decodeURIComponent(m[1].replace(/"$/, "")) : fallbackName;
   a.click();
   URL.revokeObjectURL(url);
 }

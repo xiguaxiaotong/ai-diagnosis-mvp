@@ -2,8 +2,8 @@
 
 import { Search, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../../../lib/api";
+import { useCallback, useEffect, useState } from "react";
+import { api, apiDownload } from "../../../lib/api";
 import { useRequireAuth, getUser } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme";
 import { font, radius, space, touch } from "../../../lib/tokens";
@@ -192,36 +192,22 @@ export default function AdminLeadsPage() {
           诊断回放 →
         </Link>
         <a
-          href={`${(typeof window !== "undefined" && (window as any).__API_BASE) || "http://localhost:8000"}/api/admin/leads/export.csv` +
-            (activeStatuses.size > 0 && activeStatuses.size < STATUS_OPTIONS.length
-              ? "?status=" + Array.from(activeStatuses).join(",")
-              : "")}
+          href="#"
           download
           onClick={async (e) => {
             // 浏览器同源策略：dev 跨端口 → 用 fetch + Blob 触发下载
+            // （走 apiDownload：自动带 token / 走 API_BASE——此前硬编码 localhost:8000，
+            //  生产同域相对路径部署下会直接连不上，v2.0 上线前必须修）
             e.preventDefault();
-            const params = new URLSearchParams();
-            if (activeStatuses.size > 0 && activeStatuses.size < STATUS_OPTIONS.length) {
-              params.set("status", Array.from(activeStatuses).join(","));
+            const qs =
+              activeStatuses.size > 0 && activeStatuses.size < STATUS_OPTIONS.length
+                ? "?status=" + Array.from(activeStatuses).join(",")
+                : "";
+            try {
+              await apiDownload(`/api/admin/leads/export.csv${qs}`, "leads.csv");
+            } catch (err) {
+              alert(err instanceof Error ? err.message : "导出失败");
             }
-            const qs = params.toString();
-            const token = typeof window !== "undefined" ? localStorage.getItem("diag_token") : null;
-            const r = await fetch(`http://localhost:8000/api/admin/leads/export.csv${qs ? "?" + qs : ""}`, {
-              headers: token ? { Authorization: "Bearer " + token } : {},
-            });
-            if (!r.ok) {
-              alert("导出失败 HTTP " + r.status);
-              return;
-            }
-            const blob = await r.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            const cd = r.headers.get("Content-Disposition") || "";
-            const m = cd.match(/filename="?([^"]+)"?/);
-            a.download = m ? m[1] : "leads.csv";
-            a.click();
-            URL.revokeObjectURL(url);
           }}
           style={{
             display: "inline-flex",

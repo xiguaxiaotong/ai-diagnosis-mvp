@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { api, API_BASE } from "../lib/api";
+import { api } from "../lib/api";
 import { getUser, useAuthed, getToken, saveSession, isGuest, stashGuestToken, type AuthUser } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 import { font, fontFluid, lineHeight, radius, space, touch } from "../lib/tokens";
@@ -117,8 +117,8 @@ export default function Home() {
 
   // 联调：检测后端健康状态
   useEffect(() => {
-    fetch(`${API_BASE}/api/health`)
-      .then((r) => setBackendOk(r.ok))
+    api("/api/health")
+      .then(() => setBackendOk(true))
       .catch(() => setBackendOk(false));
   }, []);
 

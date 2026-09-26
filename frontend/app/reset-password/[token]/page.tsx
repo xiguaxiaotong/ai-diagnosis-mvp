@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { API_BASE } from "../../../lib/api";
+import { api } from "../../../lib/api";
 import { useTheme } from "../../../lib/theme";
 import { font, radius, space, touch } from "../../../lib/tokens";
 
@@ -44,21 +44,15 @@ function ResetForm() {
     if (password !== confirm) { setError("两次输入的密码不一致"); return; }
     setBusy(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/auth/reset-password`, {
+      await api("/api/auth/reset-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, new_password: password }),
       });
-      const data = await resp.json();
-      if (!resp.ok) {
-        setError(data.detail ?? "重置失败，请稍后重试");
-        return;
-      }
       setDone(true);
       // 5 秒后跳登录；给用户看「已重置」+「去登录」按钮
       setTimeout(() => router.replace("/login"), 5000);
-    } catch {
-      setError("网络异常，请检查网络后重试");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "重置失败，请稍后重试");
     } finally {
       setBusy(false);
     }

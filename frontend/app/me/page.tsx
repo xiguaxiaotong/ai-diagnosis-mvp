@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { API_BASE } from "../../lib/api";
+import { api } from "../../lib/api";
 import { clearSession, getToken, useRequireAuth } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
 import { font, radius, space, touch } from "../../lib/tokens";
@@ -46,40 +46,27 @@ export default function MePage() {
     if (!getToken()) return;
     (async () => {
       try {
-        const resp = await fetch(`${API_BASE}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        if (!resp.ok) {
-          setLoadErr(`加载失败 HTTP ${resp.status}`);
-          return;
-        }
-        const data = await resp.json();
-        const u = data.user as MeUser;
+        const data = await api<{ user: MeUser }>("/api/auth/me");
+        const u = data.user;
         setUser(u);
         setNameInput(u.name);
         setEmailInput(u.email ?? "");
       } catch (e) {
-        setLoadErr(String(e));
+        setLoadErr(e instanceof Error ? e.message : String(e));
       }
     })();
   }, [authed]);
 
   // ---------- PATCH 通用封装 ----------
-  async function patchMe(body: Record<string, unknown>): Promise<{ ok: true; data: any } | { ok: false; detail: string }> {
+  async function patchMe(body: Record<string, unknown>): Promise<{ ok: true; data: { user: MeUser; changed: string[] } } | { ok: false; detail: string }> {
     try {
-      const resp = await fetch(`${API_BASE}/api/auth/me`, {
+      const data = await api<{ user: MeUser; changed: string[] }>("/api/auth/me", {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
         body: JSON.stringify(body),
       });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) return { ok: false, detail: data.detail ?? `HTTP ${resp.status}` };
       return { ok: true, data };
-    } catch {
-      return { ok: false, detail: "网络异常，请重试" };
+    } catch (e) {
+      return { ok: false, detail: e instanceof Error ? e.message : "网络异常，请重试" };
     }
   }
 

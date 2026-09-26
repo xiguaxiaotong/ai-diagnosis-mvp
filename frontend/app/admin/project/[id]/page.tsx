@@ -1,13 +1,13 @@
 "use client";
 
-import { ArrowLeft, Bot, ChevronRight, ListTree, ShieldCheck, User as UserIcon } from "lucide-react";
+import { ArrowLeft, Bot, ListTree, ShieldCheck, User as UserIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../../lib/api";
 import { getUser, useRequireAuth } from "../../../../lib/auth";
 import { useTheme } from "../../../../lib/theme";
-import { font, fontFluid, radius, space, touch } from "../../../../lib/tokens";
+import { font, radius, space } from "../../../../lib/tokens";
 
 interface Module {
   name: string;
@@ -19,12 +19,6 @@ interface TechChoice {
   layer: string;
   choice: string;
   reason: string;
-}
-interface BudgetItem {
-  item: string;
-  basis: string;
-  min_amount: number;
-  max_amount: number;
 }
 
 interface SolutionPlan {

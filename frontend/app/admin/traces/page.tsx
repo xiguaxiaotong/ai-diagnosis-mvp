@@ -107,16 +107,16 @@ export default function AdminTracesPage() {
       >
         <Activity size={22} color={colors.brand.primary} />
         <h1 style={{ margin: 0, fontSize: font.xl }}>运营后台 · 诊断回放</h1>
-        <Link href="/admin" style={navLink(colors, borderStyle, radius, touch, font, space)}>
+        <Link href="/admin" style={navLink(colors, radius, touch, font, space)}>
           看板
         </Link>
-        <Link href="/admin/leads" style={navLink(colors, borderStyle, radius, touch, font, space)}>
+        <Link href="/admin/leads" style={navLink(colors, radius, touch, font, space)}>
           Leads 跟进
         </Link>
-        <Link href="/admin/worksheets" style={navLink(colors, borderStyle, radius, touch, font, space)}>
+        <Link href="/admin/worksheets" style={navLink(colors, radius, touch, font, space)}>
           工单跟单
         </Link>
-        <Link href="/admin/cases" style={navLink(colors, borderStyle, radius, touch, font, space)}>
+        <Link href="/admin/cases" style={navLink(colors, radius, touch, font, space)}>
           案例库管理
         </Link>
       </header>
@@ -241,7 +241,6 @@ export default function AdminTracesPage() {
 // admin 页统一导航链接样式（与 worksheets 页一致）
 function navLink(
   colors: ReturnType<typeof useTheme>["colors"],
-  borderStyle: ReturnType<typeof useTheme>["borderStyle"],
   radius: { base: number },
   touch: { base: number },
   font: { sm: number },

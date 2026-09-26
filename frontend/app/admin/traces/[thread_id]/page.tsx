@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../../lib/api";
 import { getUser, useRequireAuth } from "../../../../lib/auth";
 import { useTheme } from "../../../../lib/theme";
-import { font, radius, space, touch } from "../../../../lib/tokens";
+import { font, radius, space } from "../../../../lib/tokens";
 
 interface TraceItem {
   type: "node" | "llm";

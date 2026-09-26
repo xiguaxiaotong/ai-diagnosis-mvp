@@ -348,6 +348,7 @@ export default function ProjectPage() {
         .catch(() => undefined) // 404 / 401 等都视为「没留资」
         .finally(() => setLeadLoaded(true));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 有意按 status 驱动：d 每次 load 都是新对象引用，加进 deps 会让每次 setD 重跑（leadLoaded 反复 set）；内部已用 d?.status 窄化
   }, [d?.status, projectId]);
 
   async function submitLead() {
@@ -1083,6 +1084,7 @@ export default function ProjectPage() {
               <X size={22} strokeWidth={1.5} />
             </button>
           </div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- src 是 html2canvas 生成的 data URL（预览长图），next/image 不适用（无远程域、需 unoptimized 反而绕弯） */}
           <img
             src={previewImg}
             alt="方案长图（长按保存）"

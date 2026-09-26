@@ -6,7 +6,7 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { API_BASE } from "../../../lib/api";
+import { api } from "../../../lib/api";
 import { useTheme } from "../../../lib/theme";
 import { font, fontFluid, lineHeight, radius, space } from "../../../lib/tokens";
 import { BookOpen, Lightbulb, Pin, Share2, TriangleAlert } from "lucide-react";
@@ -59,13 +59,12 @@ export default function SharedPlanPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/share/${params.token}`)
-      .then(async (r) => {
-        if (!r.ok) throw new Error(r.status === 404 ? "分享链接不存在或已失效" : "加载失败");
-        return r.json() as Promise<SharedData>;
-      })
+    api<SharedData>(`/api/share/${params.token}`)
       .then(setD)
-      .catch((e) => setError(String(e.message ?? e)));
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg.includes("404") ? "分享链接不存在或已失效" : "加载失败");
+      });
   }, [params.token]);
 
   const card = (title: string, node: React.ReactNode) => (

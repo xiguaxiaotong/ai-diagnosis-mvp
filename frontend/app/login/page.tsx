@@ -2,8 +2,8 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { API_BASE } from "../../lib/api";
-import { isGuest, popGuestToken, saveSession } from "../../lib/auth";
+import { api } from "../../lib/api";
+import { AuthUser, isGuest, popGuestToken, saveSession } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
 import { font, radius, space, touch } from "../../lib/tokens";
 
@@ -46,27 +46,20 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      const resp = await fetch(`${API_BASE}/api/auth/${mode}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: u, password }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) {
-        setError(data.detail ?? "请求失败，请重试");
-        return;
-      }
+      const data = await api<{ token: string; user: AuthUser; note?: string }>(
+        `/api/auth/${mode}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ username: u, password }),
+        },
+      );
       saveSession(data.token, data.user);
       // 游客项目过户：把游客名下项目全部转到刚登录的正式账号（失败不阻塞跳转）
       const guestToken = popGuestToken();
       if (guestToken) {
         try {
-          await fetch(`${API_BASE}/api/auth/claim`, {
+          await api("/api/auth/claim", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${data.token}`,
-            },
             body: JSON.stringify({ guest_token: guestToken }),
           });
         } catch {
@@ -75,8 +68,8 @@ function LoginForm() {
       }
       if (data.note) setNote(data.note);
       router.replace(next);
-    } catch {
-      setError("网络异常，请检查网络后重试");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "请求失败，请重试");
     } finally {
       setBusy(false);
     }
@@ -87,17 +80,14 @@ function LoginForm() {
     if (u.length < 2) { setError("请输入你的用户名"); return; }
     setBusy(true); setError(null);
     try {
-      const resp = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+      await api("/api/auth/forgot-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: u }),
       });
-      const data = await resp.json();
-      if (!resp.ok) { setError(data.detail ?? "请求失败，请重试"); return; }
       // 不论用户名是否存在都返回 200（防枚举），但前端只在确实拿到 ok 时切到「已发送」
       setStage("forgot-sent");
-    } catch {
-      setError("网络异常，请检查网络后重试");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "请求失败，请重试");
     } finally {
       setBusy(false);
     }

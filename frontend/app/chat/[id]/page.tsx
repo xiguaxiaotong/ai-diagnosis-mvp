@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, API_BASE } from "../../../lib/api";
-import { getToken, handle401, useRequireAuth } from "../../../lib/auth";
+import { api, apiStream } from "../../../lib/api";
+import { useRequireAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme";
 import { useSwipeBack } from "../../../lib/useSwipeBack";
 import { font, lineHeight, radius, space, touch } from "../../../lib/tokens";
@@ -192,6 +192,7 @@ export default function ChatPage() {
         setError(String(e));
         setLoaded(true);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 本 effect 是「进页面加载一次」语义：send 闭包了 msgs/busy 等全部会话 state，加进 deps 会导致每条消息重放 load（闪烁/竞态）；autoSentRef 已防重复自动发送
   }, [projectId]);
 
   // 新消息/流式输出时滚到底部
@@ -252,27 +253,18 @@ export default function ChatPage() {
 
     let lastPhase = "";
     try {
-      const token = getToken();
-      const resp = await fetch(file ? `${API_BASE}/api/chat/upload` : `${API_BASE}/api/chat`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        ...(file
-          ? { body: (() => {
+      const resp = await apiStream(
+        file ? "/api/chat/upload" : "/api/chat",
+        file
+          ? (() => {
               const fd = new FormData();
               fd.append("project_id", String(projectId));
               fd.append("note", message);
               fd.append("file", file);
               return fd;
-            })() }
-          : {
-              headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-              body: JSON.stringify({ project_id: projectId, message }),
-            }),
-      });
-      if (resp.status === 401) {
-        handle401();
-        throw new Error("未登录或登录已过期");
-      }
+            })()
+          : { project_id: projectId, message },
+      );
       if (!resp.ok || !resp.body) {
         throw new Error(`API ${resp.status}: ${await resp.text()}`);
       }

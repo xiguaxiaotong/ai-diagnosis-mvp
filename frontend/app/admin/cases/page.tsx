@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, Search, ShieldCheck } from "lucide-react";
+import { BookOpen, Search } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../lib/api";
