@@ -22,7 +22,12 @@ def upload_case(
     industry: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    """上传案例文档（md/txt/docx/pdf）→ 切分入库 + 元数据落库。"""
+    """上传案例文档（md/txt/docx/pdf）→ 元数据落库 + 向量化（失败不阻断）。
+
+    P2 案例自动向量化：入库即调统一向量化入口。向量计算失败时案例照常
+    入库（vectorized=False，检索暂不可见，后端记 warning 日志），运营跑
+    import_cases_csv.py --backfill 补齐后即可检索。
+    """
     from app.retrieval.loader import SUPPORTED_EXTS
 
     filename = file.filename or "unnamed.txt"
@@ -47,7 +52,8 @@ def upload_case(
         save_path.unlink(missing_ok=True)
         logger.exception("案例入库失败")
         raise HTTPException(status_code=500, detail="案例入库失败，详见后端日志") from None
-    return case_service.case_to_dict(case)
+    return {**case_service.case_to_dict(case),
+            "vectorized": case.vector_id is not None}
 
 
 @router.get("")

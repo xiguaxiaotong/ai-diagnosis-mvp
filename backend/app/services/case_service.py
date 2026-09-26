@@ -5,7 +5,9 @@ Case.vector_id 存这个前缀，删除/查询时按前缀定位。
 """
 
 import logging
+from datetime import date
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -20,37 +22,61 @@ def case_vector_prefix(case_id: int) -> str:
     return f"case-{case_id}"
 
 
+def vectorize_case(db: Session, case: Case) -> bool:
+    """统一向量化入口（P2 案例自动向量化）。
+
+    按 case-{id} 前缀重嵌入：先 delete_by_doc 清旧 chunk（幂等——chunk 数
+    变少时旧尾巴不残留），再 ingest_file，成功后回填 vector_id。
+    失败不抛（入库不被向量计算阻断）：回滚 DB 改动，案例保留
+    （vector_id=None → 检索联表时静默不召回），记 warning 日志，
+    由 backfill_vectors（import_cases_csv.py --backfill）手动补跑兜底。
+
+    返回 True=向量可用；False=失败（案例已存，检索暂不可见）。
+    """
+    prefix = case_vector_prefix(case.id)
+    path = Path(case.file_path) if case.file_path else None
+    if path is None or not path.exists():
+        logger.warning("案例 %s(%s) 源文件缺失，跳过向量化: %s",
+                       case.id, case.title, case.file_path)
+        return False
+    try:
+        store = get_vector_store()
+        store.delete_by_doc(prefix)  # 清旧 chunk（含首次入库的空操作）
+        n_chunks = ingest_file(path, store, metadata={
+            "industry": case.industry or "",
+            "case_db_id": case.id,
+        }, doc_id=prefix)
+        case.vector_id = prefix
+        db.commit()
+        logger.info("案例 %s 向量化: %d chunks", prefix, n_chunks)
+        return True
+    except Exception:
+        db.rollback()
+        logger.warning("案例 %s(%s) 向量化失败：案例已保留、检索暂不可见，"
+                       "跑 scripts/import_cases_csv.py --backfill 补齐",
+                       case.id, case.title, exc_info=True)
+        return False
+
+
 def create_case_from_file(db: Session, file_path: str | Path, title: str,
                           industry: str | None = None) -> Case:
-    """上传文件 → 切分入库（向量库）→ 元数据落库（SQLite）。
+    """上传文件 → 元数据落库（SQLite）→ 向量化（统一入口，失败不阻断）。
 
-    顺序：先建 DB 行拿 id，再以 case-{id} 为 doc_id 入向量库，最后回填 vector_id。
+    顺序：先建 DB 行拿 id，再 vectorize_case（以 case-{id} 为 doc_id 入向量库，
+    成功回填 vector_id）。向量计算失败时案例照样入库（vector_id=None，
+    检索静默不召回），记日志 + --backfill 兜底——入库成功与检索可用解耦。
     """
+    from app.retrieval.loader import load_text
+
     p = Path(file_path)
-    case = Case(title=title, industry=industry, file_path=str(p))
+    text = load_text(p)  # 解析失败（类型不支持/空文档）仍直接抛给 API 层
+    case = Case(title=title, industry=industry, file_path=str(p),
+                summary=(text or "")[:120])
     db.add(case)
     db.commit()
     db.refresh(case)
 
-    prefix = case_vector_prefix(case.id)
-    try:
-        store = get_vector_store()
-        from app.retrieval.loader import load_text
-        text = load_text(p)
-        n_chunks = ingest_file(p, store, metadata={
-            "industry": industry or "",
-            "case_db_id": case.id,
-        }, doc_id=prefix)
-        case.vector_id = prefix
-        case.summary = (text or "")[:120]
-        db.commit()
-        logger.info("案例 %s 入库: %d chunks", prefix, n_chunks)
-    except Exception:
-        # 向量入库失败要回滚 DB 行，避免出现查不到向量的幽灵案例
-        db.rollback()
-        db.delete(case)
-        db.commit()
-        raise
+    vectorize_case(db, case)
     return case
 
 
@@ -65,7 +91,7 @@ def upsert_case_structured(db: Session, *, title: str, body: str,
                            duration_weeks: str | None = None,
                            source_url: str | None = None,
                            source_type: str | None = None,
-                           collected_at=None,
+                           collected_at: date | None = None,
                            data_quality: str | None = None,
                            review_status: str = Case.REVIEW_PENDING,
                            ) -> tuple[Case, bool]:
@@ -75,52 +101,40 @@ def upsert_case_structured(db: Session, *, title: str, body: str,
     - 按 title 判重：已存在则更新（结构化字段 + 重新向量化），不重复插入
     - 带 W7 Day6 新增的结构化报价字段（scenario / budget_* / …）
 
-    更新时先 delete_by_doc 清旧 chunk 再重嵌入：
-    ingest_file 按 chunk id 覆盖，但新版 chunk 数变少时旧尾巴会残留，必须先删。
+    幂等语义（P2 案例自动向量化）：重复导入按 case-{id} 前缀覆盖向量
+    （vectorize_case 先 delete_by_doc 再重嵌入），不产生重复 chunk。
 
-    返回 (case, created)。向量入库失败时：新建行回滚删除；更新行回滚字段改动。
+    向量化走统一入口 vectorize_case：失败不阻断入库（P2 起改为字段先落库，
+    案例/字段保留、vector_id 视成败回填），--backfill 兜底。
     """
     p = Path(file_path)
     case = db.query(Case).filter(Case.title == title).first()
     created = case is None
-    if created:
+    if case is None:
         case = Case(title=title)
         db.add(case)
         db.commit()
         db.refresh(case)
 
-    prefix = case_vector_prefix(case.id)
-    try:
-        store = get_vector_store()
-        store.delete_by_doc(prefix)  # 清旧 chunk（含首次导入时的空操作）
-        n_chunks = ingest_file(p, store, metadata={
-            "industry": industry or "",
-            "case_db_id": case.id,
-        }, doc_id=prefix)
-        case.industry = industry
-        case.file_path = str(p)
-        case.summary = body[:120]
-        case.scenario = scenario
-        case.features = features
-        case.tech_stack = tech_stack
-        case.budget_min = budget_min
-        case.budget_max = budget_max
-        case.duration_weeks = duration_weeks
-        case.source_url = source_url
-        case.source_type = source_type
-        case.collected_at = collected_at
-        case.data_quality = data_quality
-        case.review_status = review_status
-        case.vector_id = prefix
-        db.commit()
-        logger.info("案例 %s %s: %d chunks", prefix,
-                    "新建" if created else "更新", n_chunks)
-    except Exception:
-        db.rollback()
-        if created:
-            db.delete(case)
-            db.commit()
-        raise
+    # 先落全部字段（入库不被向量计算阻断），再统一向量化
+    case.industry = industry
+    case.file_path = str(p)
+    case.summary = body[:120]
+    case.scenario = scenario
+    case.features = features
+    case.tech_stack = tech_stack
+    case.budget_min = budget_min
+    case.budget_max = budget_max
+    case.duration_weeks = duration_weeks
+    case.source_url = source_url
+    case.source_type = source_type
+    case.collected_at = collected_at
+    case.data_quality = data_quality
+    case.review_status = review_status
+    db.commit()
+    db.refresh(case)
+
+    vectorize_case(db, case)
     return case, created
 
 
@@ -180,7 +194,7 @@ def delete_case(db: Session, case_id: int) -> bool:
     return True
 
 
-def case_to_dict(case: Case) -> dict:
+def case_to_dict(case: Case) -> dict[str, Any]:
     return {
         "id": case.id,
         "title": case.title,

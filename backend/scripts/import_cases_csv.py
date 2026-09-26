@@ -114,7 +114,8 @@ def import_csv(csv_path: str, limit: int | None = None) -> None:
                     review_status=(row.get("status") or "pending").strip() or "pending",
                 )
                 print(f"[{'新建' if created else '更新'}] id={case.id} "
-                      f"{title}（{case.scenario}，预算 {case.budget_min}-{case.budget_max}）")
+                      f"{title}（{case.scenario}，预算 {case.budget_min}-{case.budget_max}）"
+                      f"{' ✓向量' if case.vector_id else ' ⚠️向量失败待backfill'}")
                 created_n += int(created)
                 updated_n += int(not created)
             except Exception as e:
@@ -125,6 +126,8 @@ def import_csv(csv_path: str, limit: int | None = None) -> None:
         no_vec = db.query(Case).filter(Case.vector_id.is_(None)).count()
         print(f"\n完成：新建 {created_n}，更新 {updated_n}，失败 {failed_n}")
         print(f"案例库共 {total} 条，vector_id 为空 {no_vec} 条")
+        if no_vec:
+            print("⚠️ 有案例缺向量（检索不可见）：python scripts/import_cases_csv.py --backfill 补齐")
     finally:
         db.close()
 
