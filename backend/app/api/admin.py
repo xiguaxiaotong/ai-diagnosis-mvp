@@ -10,6 +10,8 @@ Day7 新增：
 - GET   /api/admin/cases                  案例库列表（含下架的；结构化字段全量）
 - GET   /api/admin/cases/retrieve-preview 检索预览（真实用户问题预演线上召回）
 - PATCH /api/admin/cases/{id}             上下架（下架 = 检索不召回，数据全保留）
+Day9 新增：
+- GET   /api/admin/stats                  数据看板（统计卡片 + 转化漏斗 + 近14天趋势）
 
 设计要点：
 - PATCH /api/admin/leads/{id} 改 status 时自动写一条 status_change 类型的 LeadNote，
@@ -865,3 +867,121 @@ def transition_worksheet(
         "note": _ws_note_to_dict(note, admin),
         "next_statuses": sorted(Worksheet.TRANSITIONS.get(new_status, frozenset())),
     }
+
+
+# ---------- Day9：数据看板（admin 首页 /admin 的数据源） ----------
+
+TREND_DAYS = 14
+
+
+def _count_today(db: Session, model, col) -> int:
+    """按 created_at >= 今日零点 计数（SQLite datetime 存 UTC ISO 串，日期比较安全）。"""
+    from datetime import time as dt_time
+    today_start = datetime.combine(datetime.utcnow().date(), dt_time.min)
+    return (
+        db.query(model)
+        .filter(col >= today_start)
+        .count()
+    )
+
+
+@router.get("/stats")
+def get_admin_stats(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Day9：数据看板（全部实时查库，禁止写死）。
+
+    返回：
+    - cards：用户数/项目数/leads/工单（累计 + 今日新增）
+    - funnel：转化漏斗 项目 → leads → 工单 → 已成交（各环节数字 + 环比转化率%）
+    - trend：近 14 天每日新增 projects / leads（给前端画 SVG 柱状趋势）
+
+    空表安全：count 天然返回 0；trend 用日期字典补齐缺日（没数据的日期 = 0，
+    不缺格），除零保护：分母 0 时转化率返回 None（前端显示 —）。
+    """
+    from datetime import timedelta
+
+    # ---- 统计卡片 ----
+    total_users = db.query(User).count()
+    total_projects = db.query(Project).count()
+    total_leads = db.query(Lead).count()
+    total_worksheets = db.query(Worksheet).count()
+
+    cards = {
+        "users":       {"total": total_users,
+                        "today": _count_today(db, User, User.created_at)},
+        "projects":    {"total": total_projects,
+                        "today": _count_today(db, Project, Project.created_at)},
+        "leads":       {"total": total_leads,
+                        "today": _count_today(db, Lead, Lead.created_at)},
+        "worksheets":  {"total": total_worksheets,
+                        "today": _count_today(db, Worksheet, Worksheet.created_at)},
+    }
+
+    # ---- 转化漏斗：项目 → leads → 工单 → 已成交 ----
+    # 口径：leads 数取「有 project 归属的」才有可比性？——不，运营漏斗看的是
+    # 整体盘子：诊断项目产生了多少留资、留资转化出多少工单、工单成交多少。
+    # 各环节数字直接全量 count，转化率 = 下游/上游。
+    won_worksheets = db.query(Worksheet).filter(
+        Worksheet.status == Worksheet.STATUS_WON).count()
+
+    def rate(down: int, up: int) -> float | None:
+        """环比转化率（%），分母 0 → None（前端显示 —，不出 NaN/除零）。"""
+        return round(down / up * 100, 1) if up > 0 else None
+
+    funnel = {
+        "projects": total_projects,
+        "leads": total_leads,
+        "worksheets": total_worksheets,
+        "won": won_worksheets,
+        # 各环节相对上一环的转化率
+        "rates": {
+            "project_to_lead": rate(total_leads, total_projects),
+            "lead_to_worksheet": rate(total_worksheets, total_leads),
+            "worksheet_to_won": rate(won_worksheets, total_worksheets),
+        },
+    }
+
+    # ---- 近 14 天趋势：每日新增 projects / leads ----
+    since = datetime.utcnow() - timedelta(days=TREND_DAYS - 1)
+    since_date = since.date()
+
+    proj_rows = (
+        db.query(Project.created_at)
+        .filter(Project.created_at >= since)
+        .all()
+    )
+    lead_rows = (
+        db.query(Lead.created_at)
+        .filter(Lead.created_at >= since)
+        .all()
+    )
+
+    def _day_key(dt: datetime | None) -> str | None:
+        # created_at 是 UTC（func.now()），按 UTC 日期分桶（本地 dev 与线上口径一致）
+        return dt.date().isoformat() if dt else None
+
+    proj_counts: dict[str, int] = {}
+    for (dt,) in proj_rows:
+        k = _day_key(dt)
+        if k:
+            proj_counts[k] = proj_counts.get(k, 0) + 1
+    lead_counts: dict[str, int] = {}
+    for (dt,) in lead_rows:
+        k = _day_key(dt)
+        if k:
+            lead_counts[k] = lead_counts.get(k, 0) + 1
+
+    # 补齐 14 天（含今天），缺日 = 0
+    trend = []
+    for i in range(TREND_DAYS):
+        day = since_date + timedelta(days=i)
+        key = day.isoformat()
+        trend.append({
+            "date": key,
+            "projects": proj_counts.get(key, 0),
+            "leads": lead_counts.get(key, 0),
+        })
+
+    return {"cards": cards, "funnel": funnel, "trend": trend, "trend_days": TREND_DAYS}

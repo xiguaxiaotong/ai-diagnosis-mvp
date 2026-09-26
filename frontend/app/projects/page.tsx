@@ -105,10 +105,11 @@ export default function ProjectsPage() {
   // 顶栏「+ 新建诊断」按钮
   const bannerLink = (
     <div style={{ display: "flex", gap: space.sm, alignItems: "center" }}>
-      {/* W7 Day5：admin 入口（仅 admin 可见；用 state 避免 hydration mismatch） */}
+      {/* W7 Day5：admin 入口（仅 admin 可见；用 state 避免 hydration mismatch）。
+          Day9 起入口指向运营看板 /admin（数据总览 → 各子页） */}
       {isAdmin && (
         <Link
-          href="/admin/leads"
+          href="/admin"
           style={{
             padding: `${space.sm}px ${space.md}px`,
             background: colors.bg.surface,
