@@ -24,12 +24,12 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import ADMIN_USER_IDS, BASE_URL
+from app.config import ADMIN_USER_IDS, BASE_URL, settings
 from app.db.database import get_db
 from app.db.models import AuthSession, PasswordResetToken, Project, User
 from app.infra.timeutil import utcnow
 from app.services.email import send_password_reset
-from app.services.rate_limit import check_rate_limit, client_ip
+from app.services.rate_limit import check_rate, check_rate_limit, client_ip, record_rate
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -37,10 +37,11 @@ SESSION_DAYS = 30
 RESET_TTL_MINUTES = 30
 _PBKDF2_ITERATIONS = 600_000  # W7 Day2：OWASP 2023 推荐值
 # ---------- 限流策略（每个接口独立 scope，避免一处爆满牵连全站） ----------
-RATE_REGISTER = (5, 60)        # 5 次/分钟：注册暴力阻断
-RATE_LOGIN = (5, 60)           # 5 次/分钟：密码爆破
+# W9 收尾 B 项：注册/登录阈值收编进 config（settings.RATE_*，.env 可调）；
+# forgot/reset 维持原值（邮件/token 爆破窗口小，分钟级合适）
 RATE_FORGOT = (3, 60)          # 3 次/分钟：邮件轰炸阻断
 RATE_RESET = (5, 60)           # 5 次/分钟：token 爆破阻断
+_HOUR = 3600
 
 # 邮箱最简校验：local@domain.tld（不查 MX、不查 disposable、不查 typo）
 # 标准库 re 即可；引 email_validator 没必要（轻量但仍是新依赖）
@@ -144,7 +145,9 @@ def register(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """注册。第一个注册用户自动继承所有匿名期创建的旧项目（user_id IS NULL）。"""
-    check_rate_limit(key=client_ip(request) + ":register", limit=RATE_REGISTER[0], window_sec=RATE_REGISTER[1])
+    check_rate_limit(
+        key=client_ip(request) + ":register",
+        limit=settings.RATE_REGISTER_PER_HOUR, window_sec=_HOUR, scope="register")
 
     username = body.username.strip()
     exists = db.scalar(select(User).where(User.username == username))
@@ -176,16 +179,21 @@ def login(request: Request, body: AuthBody, db: Session = Depends(get_db)) -> di
     自动重 hash 机制：_verify_password 返回 (ok, iterations)，若 ok 且 iterations < 600k，
     用 _hash_password(body.password) 重写 user.password_hash。零额外逻辑、自然平滑升级。
     """
-    check_rate_limit(key=client_ip(request) + ":login", limit=RATE_LOGIN[0], window_sec=RATE_LOGIN[1])
+    # W9 B 项：失败才计数（成功登录不占额度）——check 查当前失败数，失败路径 record
+    _rl_key = client_ip(request) + ":login"
+    check_rate(key=_rl_key, limit=settings.RATE_LOGIN_FAIL_PER_HOUR,
+               window_sec=_HOUR, scope="login")
 
     user = db.scalar(select(User).where(User.username == body.username.strip()))
     if user is None or not user.password_hash:
         # 跑一遍哈希防止时序攻击 + 统一返回时间（用户名/密码错都走同一返回）
         _verify_password(body.password, f"pbkdf2_sha256${_PBKDF2_ITERATIONS}$00${'00' * 32}")
+        record_rate(key=_rl_key, window_sec=_HOUR)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     ok, iterations = _verify_password(body.password, user.password_hash)
     if not ok:
+        record_rate(key=_rl_key, window_sec=_HOUR)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     # 自动升级老 hash：老用户登录一次即平滑迁移到 600k

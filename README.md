@@ -64,20 +64,61 @@ AIAgent 赋能服务平台（商业计划书见「初创团队文档」）M0 阶
 
 套件结构（backend/tests/）：
 
-    conftest.py          # 公共基建：临时库 env 隔离 / TestClient / stub LLM / 造项目
-    test_budget.py       # 预算规则引擎（含 xfail：T-1 存量口径问题，见 docs/TODO.md）
+    conftest.py          # 公共基建：临时库 env 隔离（限流默认关）/ TestClient / stub LLM / 造项目
+    test_budget.py       # 预算规则引擎（T-1 已关闭：corpus 白名单 + 幂等回归）
     test_models.py       # 纯函数：意图分流 / 确认路由 / 文档切分 / embedding / CRUD
     test_diagnosis.py    # 诊断图：追问循环 / 5 轮强制 / 方案结构 / 确认循环话术
+    test_generate_fallback.py # generate 输出异常分级容错（T-2：可选补默认/必填重试）
     test_consult.py      # 咨询分流：不烧 token / 不消耗轮次 / 不打断确认
     test_api.py          # HTTP 层：项目 CRUD / SSE 事件序列 / 确认接口 / 404
+    test_security.py     # 安全回归（pentest_* 5 脚本收编）：意图对抗 / 坏输出容错 /
+                         #   并发锁 busy / 文件注入 / 限流（诊断5/min·注册10/h·登录失败20/h）
     test_retrieval.py    # 向量库增删查 / 文档入库 / 案例检索端到端（slow：本地 bge）
+    test_case_vectorize.py # 案例自动向量化：入库即检索 / 幂等 / 失败不阻断 / 上下架联动
     test_admin.py        # 案例管理 API + admin 权限
     golden/              # understand 黄金集（30 条种子 CSV 真实需求，真 LLM 评估）
 
+scripts/pentest_*（W7 破甲系列 5 脚本）已收编进 test_security.py 并删除。
 其余 scripts/test_day7/8/9、test_w8d1_trace、test_w8d23_traces 为近期
 里程碑验收脚本，独立运行（同样自带临时库隔离），后续按需收编。
 
 marker 说明：`llm` 真实 DeepSeek 调用；`slow` 本地 bge 模型加载等慢测试。
+
+## 数据库备份与恢复（SQLite，W9 起）
+
+自动备份：`backend/scripts/backup_db.py`（sqlite3 backup API 热备，不停服务），
+产物在 `backend/backups/sqlite_YYYYMMDD_HHMMSS.db`，保留最近 14 份。
+
+Windows 计划任务（每天凌晨 3 点，自己执行一次即可，之后全自动）：
+
+    schtasks /Create /TN "AIDiagnosis-DBBackup" /SC DAILY /ST 03:00 ^
+      /TR "cmd /c cd /d D:/ai-diagnosis-mvp/backend && C:/Users/31905/miniconda3/python.exe scripts/backup_db.py >> backups/backup.log 2>&1"
+
+查看/删除：`schtasks /Query /TN "AIDiagnosis-DBBackup" /V`、
+`/TN ... /Delete`。恢复步骤见下。
+
+### 恢复步骤（主库损坏/误删时）
+
+1. 停后端：`docker compose stop backend`（或本地 Ctrl+C uvicorn）
+2. 演练验证备份可用（integrity_check + 核心表行数，不碰主库）：
+
+       cd backend
+       python scripts/restore_drill.py
+
+3. 用最新备份覆盖主库（先留一份现场以便排查）：
+
+       cd backend
+       move data\sqlite.db data\sqlite.db.broken
+       copy backups\<最新备份>.db data\sqlite.db
+
+4. 重启后端，跑快速档 pytest 确认全绿：
+
+       python -m pytest -m "not llm and not slow"
+
+5. 冒烟：打开演示站发起一条新诊断，能正常追问/出方案即恢复完成
+
+说明：只备份主库（业务数据），checkpoints.sqlite 不备份——它是进行中
+对话的中间态，损坏只影响当前会话，新对话照常。
 
 ## 目录结构
 

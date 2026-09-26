@@ -24,9 +24,11 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
+from app.config import settings
 from app.db.database import get_db
 from app.services import diagnosis_service, file_extract, project_service
 from app.services.project_locks import get_project_lock, touch_project_lock
+from app.services.rate_limit import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +219,12 @@ def chat(
 
     锁在 SSE generator 内部获取（端点不 acquire，否则跨线程 release 会抛错）。
     失败时以 SSE 事件 phase="busy" 告诉前端，前端据此展示「请等待」。
+    W9 B 项限流：每用户每分钟 5 次（LLM 真金白银，防刷；超限 429 + 人话文案）。
     """
+    # 在项目归属校验前限流：未命中自己项目也计数（防无效请求绕过限流刷 LLM 前的校验成本）
+    check_rate_limit(key=f"user:{user.id}:diagnosis",
+                     limit=settings.RATE_DIAGNOSIS_PER_MIN, window_sec=60,
+                     scope="diagnosis")
     project = project_service.get_project(db, body.project_id)
     if project is None or project.user_id != user.id:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -235,7 +242,11 @@ async def chat_upload(
     """文件上传对话：提取文件文本（txt/docx/pdf/图片OCR）→ 作为用户消息进诊断流。
 
     文件内容进入对话历史后，AI 会结合数据更新方案（如按真实预算/规模修正报价）。
+    与 /api/chat 同一限流口径（每用户每分钟 5 次，同一账本）。
     """
+    check_rate_limit(key=f"user:{user.id}:diagnosis",
+                     limit=settings.RATE_DIAGNOSIS_PER_MIN, window_sec=60,
+                     scope="diagnosis")
     project = project_service.get_project(db, project_id)
     if project is None or project.user_id != user.id:
         raise HTTPException(status_code=404, detail="项目不存在")

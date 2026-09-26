@@ -79,6 +79,16 @@ class Settings(BaseSettings):
     # 逗号分隔 user.id；默认空 = 没人是运营；查 user.id 后回填
     ADMIN_USER_IDS: str = ""
 
+    # ---------- W9 收尾 B 项：公开接口限流（内存滑动窗口，单进程） ----------
+    # 总开关：False = 全部接口不限流（测试环境默认关，防套件自身触发）
+    RATE_LIMIT_ENABLED: bool = True
+    # 诊断对话（含 SSE / 文件上传）：每用户每分钟 5 次（LLM 真金白银，防刷）
+    RATE_DIAGNOSIS_PER_MIN: int = 5
+    # 注册：每 IP 每小时 10 次（防批量注册占用户名）
+    RATE_REGISTER_PER_HOUR: int = 10
+    # 登录失败：每 IP 每小时 20 次（防密码爆破；成功不占额度）
+    RATE_LOGIN_FAIL_PER_HOUR: int = 20
+
     @model_validator(mode="after")
     def _fill_default_paths(self) -> "Settings":
         """路径默认值在验证后填充（默认值依赖 DATA_DIR，写死在字段默认里做不到）。"""

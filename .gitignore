@@ -25,6 +25,9 @@ backend/data/cases/*
 # 运行时 trace（W8 Day1 节点级调用链日志，追加写、只查不删）
 backend/logs/
 
+# SQLite 备份产物（脚本入库，备份文件不入库）
+backend/backups/
+
 # 运行日志
 *.log
 

@@ -26,6 +26,9 @@ os.environ["CASES_DIR"] = str(_TMP / "cases")
 os.environ["CHECKPOINTS_PATH"] = str(_TMP / "checkpoints.sqlite")
 os.environ["TRACE_PATH"] = str(_TMP / "trace.jsonl")
 os.environ["ADMIN_USER_IDS"] = "1"
+# W9 B 项：限流默认关——套件自身会高频打 chat/register/login（TestClient 同 IP
+# 同用户），开了会 429 撞自己。限流逻辑由 tests/test_security.py 单独开覆盖。
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # backend/
 
