@@ -174,6 +174,23 @@ export default function AdminLeadsPage() {
         >
           工单跟单 →
         </Link>
+        <Link
+          href="/admin/traces"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            padding: `${space.sm}px ${space.md}px`,
+            background: colors.bg.surface,
+            color: colors.brand.linkText,
+            border: `1px solid ${colors.brand.primary}`,
+            borderRadius: radius.base,
+            textDecoration: "none",
+            fontSize: font.sm,
+            minHeight: touch.base,
+          }}
+        >
+          诊断回放 →
+        </Link>
         <a
           href={`${(typeof window !== "undefined" && (window as any).__API_BASE) || "http://localhost:8000"}/api/admin/leads/export.csv` +
             (activeStatuses.size > 0 && activeStatuses.size < STATUS_OPTIONS.length

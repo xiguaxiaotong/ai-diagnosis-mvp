@@ -1015,7 +1015,61 @@ def get_admin_stats(
     return {"cards": cards, "funnel": funnel, "trend": trend, "trend_days": TREND_DAYS}
 
 
-# ---------- W8 Day1：诊断调用链 trace 查询 ----------
+# ---------- W8 Day2/3：诊断回放 · 会话成本汇总 ----------
+
+@router.get("/traces")
+def list_traces(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """会话级 trace 聚合（按最后活动倒序），每行附估算成本（元，4 位小数）。
+
+    - limit：默认 50，硬上限 200（防 trace.jsonl 增大后接口变慢）
+    - 成本 = prompt/1M × DEEPSEEK_PRICE_PROMPT + completion/1M ×
+      DEEPSEEK_PRICE_COMPLETION（config/env 可调，估算非结算）
+    - totals 是「全部会话」合计（不受 limit 影响），前端渲染合计行
+    - 文件不存在/空 → items 空列表 + 全 0 totals，不报错
+    """
+    from app.agent.trace import aggregate_traces
+    from app.config import DEEPSEEK_PRICE_COMPLETION, DEEPSEEK_PRICE_PROMPT
+
+    def cost(prompt: int, completion: int) -> float:
+        return round(
+            prompt / 1_000_000 * DEEPSEEK_PRICE_PROMPT
+            + completion / 1_000_000 * DEEPSEEK_PRICE_COMPLETION,
+            4,
+        )
+
+    sessions = list(aggregate_traces().values())
+    # 全量合计（先算再截断）
+    total_prompt = sum(s["prompt_tokens"] for s in sessions)
+    total_completion = sum(s["completion_tokens"] for s in sessions)
+    totals = {
+        "sessions": len(sessions),
+        "node_count": sum(s["node_count"] for s in sessions),
+        "llm_count": sum(s["llm_count"] for s in sessions),
+        "prompt_tokens": total_prompt,
+        "completion_tokens": total_completion,
+        "cost_cny": cost(total_prompt, total_completion),
+        "price": {  # 回显单价，前端展示口径透明
+            "prompt_per_m": DEEPSEEK_PRICE_PROMPT,
+            "completion_per_m": DEEPSEEK_PRICE_COMPLETION,
+        },
+    }
+
+    sessions.sort(key=lambda s: s["last_active_at"] or "", reverse=True)
+    safe_limit = max(1, min(limit, 200))
+    items = []
+    for s in sessions[:safe_limit]:
+        row = dict(s)
+        row["cost_cny"] = cost(s["prompt_tokens"], s["completion_tokens"])
+        items.append(row)
+
+    logger.info("admin %s 查 trace 汇总：%d 会话，返回 %d 行",
+                admin.id, len(sessions), len(items))
+    return {"items": items, "totals": totals, "limit": safe_limit}
+
 
 @router.get("/trace/{thread_id}")
 def get_trace(

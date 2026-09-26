@@ -163,6 +163,23 @@ export default function AdminWorksheetsPage() {
         >
           案例库管理 →
         </Link>
+        <Link
+          href="/admin/traces"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            padding: `${space.sm}px ${space.md}px`,
+            background: colors.bg.surface,
+            color: colors.brand.linkText,
+            border: `1px solid ${colors.brand.primary}`,
+            borderRadius: radius.base,
+            textDecoration: "none",
+            fontSize: font.sm,
+            minHeight: touch.base,
+          }}
+        >
+          诊断回放 →
+        </Link>
       </header>
 
       {/* 筛选条 */}

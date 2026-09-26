@@ -48,6 +48,7 @@ const NAV_ITEMS = [
   { href: "/admin/leads", label: "Leads 跟进" },
   { href: "/admin/worksheets", label: "工单跟单" },
   { href: "/admin/cases", label: "案例库管理" },
+  { href: "/admin/traces", label: "诊断回放" },
 ];
 
 export default function AdminDashboardPage() {

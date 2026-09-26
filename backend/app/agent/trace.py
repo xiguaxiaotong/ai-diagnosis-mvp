@@ -218,3 +218,63 @@ def read_trace(thread_id: str) -> list[dict[str, Any]]:
     except Exception:
         logger.warning("[trace] 读取失败: %s", str(TRACE_PATH), exc_info=True)
     return out
+
+
+def aggregate_traces() -> dict[str, dict[str, Any]]:
+    """W8 Day2：按 thread_id 聚合全量 trace（单遍流式读，内存只留聚合结果）。
+
+    每会话：{thread_id, started_at, last_active_at, node_count, llm_count,
+            prompt_tokens, completion_tokens, total_duration_ms}。
+
+    口径：
+    - started_at / last_active_at 用记录 ts（node/llm 都有）的 min/max
+    - token 只从 llm 记录取（source of truth；node.tokens 是同一份的累加）
+    - total_duration_ms 只累加 node 的 duration_ms（node 耗时已含其 LLM
+      调用，llm.duration_ms 再加会双计）
+    坏行/无 thread_id 行跳过。返回 {thread_id: 聚合行}。
+    """
+    sessions: dict[str, dict[str, Any]] = {}
+    try:
+        if not TRACE_PATH.exists():
+            return sessions
+        with open(TRACE_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                tid = rec.get("thread_id")
+                if not tid:
+                    continue
+                s = sessions.get(tid)
+                if s is None:
+                    s = {
+                        "thread_id": tid,
+                        "started_at": None,
+                        "last_active_at": None,
+                        "node_count": 0,
+                        "llm_count": 0,
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_duration_ms": 0,
+                    }
+                    sessions[tid] = s
+                ts = rec.get("ts")
+                if ts:
+                    if s["started_at"] is None or ts < s["started_at"]:
+                        s["started_at"] = ts
+                    if s["last_active_at"] is None or ts > s["last_active_at"]:
+                        s["last_active_at"] = ts
+                if rec.get("type") == "node":
+                    s["node_count"] += 1
+                    s["total_duration_ms"] += rec.get("duration_ms") or 0
+                elif rec.get("type") == "llm":
+                    s["llm_count"] += 1
+                    s["prompt_tokens"] += rec.get("prompt_tokens") or 0
+                    s["completion_tokens"] += rec.get("completion_tokens") or 0
+    except Exception:
+        logger.warning("[trace] 聚合读取失败: %s", str(TRACE_PATH), exc_info=True)
+    return sessions

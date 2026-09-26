@@ -34,6 +34,10 @@ DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "deepseek-chat")
 CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.7"))
 CHAT_TIMEOUT = float(os.getenv("CHAT_TIMEOUT", "60"))
+# W8 Day2：DeepSeek 计费单价（元 / 1M tokens，成本估算用；调价只改 .env 不动代码）
+# 默认值对齐 deepseek-chat 2025 官方刊例价（输入 2 / 输出 3），仅估非结算
+DEEPSEEK_PRICE_PROMPT = float(os.getenv("DEEPSEEK_PRICE_PROMPT", "2.0"))
+DEEPSEEK_PRICE_COMPLETION = float(os.getenv("DEEPSEEK_PRICE_COMPLETION", "3.0"))
 
 # ---------- Embedding 模型（bge-small 本地加载，无需 key） ----------
 # 中文小模型，512 维，约 100MB
