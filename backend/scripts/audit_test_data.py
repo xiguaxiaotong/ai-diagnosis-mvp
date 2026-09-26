@@ -75,6 +75,7 @@ class Report:
     # 保护
     protected_users: dict[int, str] = field(default_factory=dict)
     protected_projects: set[int] = field(default_factory=set)
+    protected_admin_projects: dict[int, str] = field(default_factory=dict)
     # 疑似
     users_suspect: dict[int, str] = field(default_factory=dict)
     projects_suspect: dict[int, str] = field(default_factory=dict)
@@ -146,20 +147,19 @@ def classify(db: Path, cp: Path) -> Report:
             if hit:
                 note = "admin 自用测试标题" if owner in rep.protected_users else "标题黑名单"
                 rep.projects_confirmed[pid] = f"{note}：{hit}"
+            elif owner in rep.protected_users:
+                # W10 Day4 用户定夺：白名单用户（admin/有 leads）名下未命中
+                # 确认级的都是真实诊断（原疑似区 22 条），收编白名单
+                rep.protected_admin_projects[pid] = "白名单用户真实诊断（疑似区收编）"
 
-    # --- 疑似区（只报告）：保护用户/保留用户名下命中疑似词的项目 ---
+    # --- 疑似区（只报告）：非 admin 用户名下命中疑似词的项目 ---
     for pid, p in projects.items():
-        if pid in rep.projects_confirmed or pid in rep.protected_projects:
+        if (pid in rep.projects_confirmed or pid in rep.protected_projects
+                or p["user_id"] in rules.PROTECTED_USER_IDS):
             continue
         hit = _hit_title_suspect(p["title"] or "")
         if hit:
             rep.projects_suspect[pid] = f"标题疑似词「{hit}」"
-    # admin 名下未命中任何规则的项目：留给人工定夺（宁可漏报）
-    for pid, p in projects.items():
-        owner = p["user_id"]
-        if (owner in rep.protected_users and pid not in rep.projects_confirmed
-                and pid not in rep.protected_projects and pid not in rep.projects_suspect):
-            rep.projects_suspect[pid] = "admin 名下未命中规则（人工定夺）"
 
     # --- 假手机（只报告：leads 受保护） ---
     for r in con.execute("select id, name, phone from leads where phone is not null"):
@@ -236,6 +236,10 @@ def print_report(db: Path, cp: Path) -> Report:
     if rep.protected_projects:
         print(f"  - 受 leads/worksheets 引用的项目 {len(rep.protected_projects)} 个："
               f"{sorted(rep.protected_projects)}")
+    if rep.protected_admin_projects:
+        print(f"  - 白名单用户真实诊断项目 {len(rep.protected_admin_projects)} 个"
+              f"（疑似区已收编，永不删）："
+              f"{sorted(rep.protected_admin_projects)}")
 
     # 确认级
     print(f"\n【确定删除】用户 {len(rep.users_confirmed)} / 项目 {len(rep.projects_confirmed)}"
