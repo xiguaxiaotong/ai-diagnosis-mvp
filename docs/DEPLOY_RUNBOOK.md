@@ -321,6 +321,29 @@ curl -s http://localhost/api/health   # 预期 {"status":"ok"}
 
 ---
 
+## 第 10 步 · 部署失败回滚（实战包 v2.0-rc · 每个失败点的处置）
+
+> 实战包三脚本（`deploy/bootstrap_server.sh` / `deploy_v2.sh` / `verify_deployment.sh`）
+> 每步失败都会自动打印对应回滚提示并退出非零。本节是完整对照表。
+
+| 失败点 | 症状 | 处置（回滚动作） |
+|---|---|---|
+| 代码传输（deploy_v2 第 1-3 步） | scp 断 / tar 解压失败 | **旧容器未动，无需回滚**——直接重跑 `bash deploy_v2.sh` |
+| .env / wheels 前置检查 | grep/ls 失败 | 无回滚动作：填 `DEEPSEEK_API_KEY` 或补传 torch wheel（RUNBOOK 第 0 步）后重跑 |
+| compose build/up（第 5 步） | build 报错 / 容器起不来 | `IMAGE_TAG=<上一版tag> DEPLOY_DOMAIN=域名 docker compose -f deploy/docker-compose.prod.yml up -d`（换 tag 不重 build，~30s）；build 报错先看 `docker logs diag-backend --tail 50` |
+| 健康检查 90s 未过（第 6 步） | /api/health 一直非 200 | 同上切旧 tag；排查：`ssh 服务器 'docker logs diag-backend --tail 50'`（常见：迁移报错 / DEEPSEEK_API_KEY 空） |
+| alembic 迁移失败（第 6 步） | upgrade head 非零 | **停 backend → 恢复库 → 起服**：`compose stop backend` → `python3 scripts/restore_backup.py backups/<最新快照> --apply` → `compose up -d backend`（restore 自带恢复前快照，可反向撤销） |
+| 数据校验不过（第 7 步） | users/projects 数 ≠ 12/26 | 传库被换或损坏：重传主库再 up；或按上行恢复备份快照 |
+| 最终探活失败（第 7 步） | health ok 过又挂 | 看 `docker logs`；切旧 tag 保服务，事后排查 |
+| verify 4 链路失败 | 注册/登录/建项目/SSE 任何一步 | 脚本自动打印回滚命令（IMAGE_TAG 回退）；SSE 无 phase 事件先查服务器 .env 的 DEEPSEEK_API_KEY 是否已填 |
+
+回滚总原则（与第 8 步镜像回滚一致）：
+- **数据卷永远不随回滚动**（bind mount 与容器生命周期解耦）；
+- 迁移单向：新版本跑过的迁移不回退（本项目历史迁移均为加列，旧代码兼容）；
+- 判「回滚成功」的唯一标准：`curl http://localhost/api/health` → `{"status":"ok"}`。
+
+---
+
 ## 踩坑清单（上线日异常排查先看这里）
 
 | # | 坑 | 症状 | 处置 |
