@@ -49,13 +49,57 @@ from app.agent.state import DiagnosisState
 from app.agent.trace import traced
 
 
+def build_consult_subgraph(g: StateGraph) -> None:
+    """咨询子图（W9 Day2 第一步拆出）。
+
+    节点：route_intent / consult
+
+    字段归属（state.py 施工图）：
+      读：messages / full_solution / final_output
+      写：intent
+
+    同构拆法：向父图注册自己的节点，节点名/拓扑与拆分前完全一致
+    （存量 checkpoint 的 interrupt 挂在顶层节点名上，改名即作废）。
+    本子图无自有边——route_intent / consult 的出边都是跨子图编排，
+    由父图 build_graph() 接。
+    """
+    g.add_node("route_intent", traced("route_intent", route_intent_node))
+    g.add_node("consult", traced("consult", consult_node))
+
+
+def build_confirmation_subgraph(g: StateGraph) -> None:
+    """方案确认子图（W9 Day2 第一步拆出）。
+
+    节点：wait_confirmation / revise / finalize / reject
+
+    字段归属（state.py 施工图）：
+      读：final_output / full_solution / revision_round
+      写：messages / decision / revision_round / revision_feedback / finalized
+
+    自有边：finalize / reject → END（确认循环的两个终态收口）。
+    wait_confirmation 的条件出边（确认/修改/满轮/拒绝/咨询分流）跨子图，
+    由父图接。
+    """
+    g.add_node("wait_confirmation", traced("wait_confirmation", wait_confirmation_node))
+    g.add_node("revise", traced("revise", revise_node))
+    g.add_node("finalize", traced("finalize", finalize_node))
+    g.add_node("reject", traced("reject", reject_node))
+    g.add_edge("finalize", END)
+    g.add_edge("reject", END)
+
+
 def build_graph():
-    """构建诊断图：追问循环（interrupt 等待输入）+ 5 轮强制结束 + 方案生成。
+    """父图编排入口：三个子图构建函数 + 跨子图编排边 + checkpointer。
 
     W8 Day1：每个节点用 traced() 包装（trace 中间层），节点函数签名与
     图结构（节点/边/路由）完全不变——traced 只在执行前后记 trace。
+    W9 Day2：图拆三个子图构建函数（同构拆法，详见各 builder 注释）。
     """
     g = StateGraph(DiagnosisState)
+    build_consult_subgraph(g)
+    build_confirmation_subgraph(g)
+
+    # ---------- 诊断区（第二步拆出前的内联形态，节点+边原样） ----------
     g.add_node("understand", traced("understand", understand_node))
     g.add_node("ask", traced("ask", ask_node))
     g.add_node("wait_input", traced("wait_input", wait_input_node))
@@ -65,31 +109,29 @@ def build_graph():
     g.add_node("budget", traced("budget", budget_node))
     g.add_node("feasibility", traced("feasibility", feasibility_node))
     g.add_node("output", traced("output", output_node))
-    g.add_node("wait_confirmation", traced("wait_confirmation", wait_confirmation_node))
-    g.add_node("revise", traced("revise", revise_node))
-    g.add_node("finalize", traced("finalize", finalize_node))
-    g.add_node("reject", traced("reject", reject_node))
-    g.add_node("route_intent", traced("route_intent", route_intent_node))
-    g.add_node("consult", traced("consult", consult_node))
 
-    g.add_edge(START, "route_intent")
-    g.add_conditional_edges(
-        "route_intent",
-        lambda s: "consult" if s.get("intent") == "consult" else "understand",
-        {"consult": "consult", "understand": "understand"},
-    )
     g.add_conditional_edges(
         "understand",
         check_completeness,
         {ROUTE_ASK: "ask", ROUTE_DONE: "retrieve", ROUTE_FORCE: "force_finish"},
     )
     g.add_edge("ask", "wait_input")
-    # 用户回答后先意图分流：咨询 → consult 回复后继续等输入；需求 → understand 重新理解
-    g.add_edge("wait_input", "route_intent")
     g.add_edge("force_finish", "retrieve")
+    g.add_edge("retrieve", "generate")
     g.add_edge("generate", "budget")
     g.add_edge("budget", "feasibility")
     g.add_edge("feasibility", "output")
+    # ---------- 诊断区结束 ----------
+
+    # ---------- 跨子图编排边（父图职责） ----------
+    g.add_edge(START, "route_intent")
+    g.add_conditional_edges(
+        "route_intent",
+        lambda s: "consult" if s.get("intent") == "consult" else "understand",
+        {"consult": "consult", "understand": "understand"},
+    )
+    # 用户回答后先意图分流：咨询 → consult 回复后继续等输入；需求 → understand 重新理解
+    g.add_edge("wait_input", "route_intent")
     # 方案确认循环：output → interrupt 等确认 → 确认/修改/拒绝/咨询/满轮
     g.add_edge("output", "wait_confirmation")
     g.add_conditional_edges(
@@ -106,9 +148,6 @@ def build_graph():
     )
     # 修改后重新检索案例 → 重跑 generate → budget → feasibility → output
     g.add_edge("revise", "retrieve")
-    g.add_edge("retrieve", "generate")
-    g.add_edge("finalize", END)
-    g.add_edge("reject", END)
 
     # SqliteSaver：checkpoint 落盘（默认 backend/data/checkpoints.sqlite，
     # 可用 env CHECKPOINTS_PATH 覆盖——测试隔离用），
