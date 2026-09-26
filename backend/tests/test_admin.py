@@ -24,6 +24,9 @@ def test_upload_and_detail(client, admin_headers):
     r = _upload(client)
     assert r.status_code == 201, r.text
     case = r.json()
+    # vectorized=False 说明 bge 向量化失败（被 API 容错吞掉）——明确报因，不再裸 assert None
+    assert case["vectorized"] is True, \
+        f"向量入库失败（bge 不可用？案例已存、检索不可见）: {case}"
     assert case["vector_id"] == f"case-{case['id']}"
     assert case["industry"] == "餐饮"
     assert case["summary"]

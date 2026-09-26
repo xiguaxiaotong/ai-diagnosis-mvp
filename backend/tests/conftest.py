@@ -86,6 +86,46 @@ def _init_db():
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _warm_embedding():
+    """bge 模型预热（session 一次；快速档含真向量用例，如 test_admin）。
+
+    flaky 根因（2026-09-26 连跑复现定位）：高负载时 SentenceTransformer
+    首次懒加载可能失败（OOM/资源饥饿），vectorize_case 按 W9 契约容错
+    吞掉（vector_id=None）→ 第一个用 bge 的用例报「assert None」难定位；
+    同次跑后续用例重新加载成功全过——纯时机赌博。预热 + 有限重试把
+    加载挪到套件启动：失败时报明确错误，成功后进程内无懒加载竞态。
+    """
+    import time
+
+    from app.infra.model_client import embedding_client
+
+    last: Exception | None = None
+    for _ in range(3):
+        try:
+            embedding_client.embed_query("预热")
+            return
+        except Exception as e:  # noqa: BLE001 —— 重试后统一报
+            last = e
+            time.sleep(2)
+    raise AssertionError(f"bge embedding 预热失败（重试 3 次均失败）: {last}")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_rate_limits():
+    """限流桶状态用例级隔离（W9 收尾防 flaky 防线，autouse 全套件生效）。
+
+    背景：限流记账（内存滑动窗口，带 60s/1h 时间窗）若有用例忘记清，会按
+    时间窗泄漏给后续用例——「跑得快就红、跑得慢就绿」的时间赌博。无论
+    用例自己写没写清理（rl_on fixture 等），这里前后各清一次兜底。
+    """
+    from app.services import rate_limit
+
+    rate_limit.reset_rate_limits()
+    yield
+    rate_limit.reset_rate_limits()
+
+
 @pytest.fixture(scope="session")
 def client():
     """TestClient + 首个用户注册（id=1 = admin，与 ADMIN_USER_IDS 对齐）。"""
