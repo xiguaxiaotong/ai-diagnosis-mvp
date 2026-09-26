@@ -94,6 +94,22 @@ def _append(record: dict[str, Any]) -> None:
                        str(TRACE_PATH), exc_info=True)
 
 
+def _validate_state_update(result: Any) -> list[str]:
+    """W9 Day1：节点输出增量写回 state 前的子状态校验（详见 state.py）。
+
+    惰性 import 防 trace↔state 循环；校验器自身异常也吞掉——
+    校验层永远不许影响主流程。
+    """
+    if not isinstance(result, dict):
+        return []
+    try:
+        from app.agent.state import validate_update
+        return validate_update(result)
+    except Exception:
+        logger.warning("[trace] 子状态校验自身异常（主流程不受影响）", exc_info=True)
+        return []
+
+
 def traced(node_name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
     """节点包装器：记录 {thread_id, 节点名, 开始/耗时, 输入/输出摘要, token}。
 
@@ -149,6 +165,12 @@ def traced(node_name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
                 record["interrupted"] = True
             if error:
                 record["error"] = error
+            # W9 Day1：输出增量过子状态校验（失败只记录不拦截，先观察一周）
+            state_errors = _validate_state_update(result)
+            if state_errors:
+                record["state_errors"] = state_errors
+                logger.warning("[trace] 节点 %s 输出未过子状态校验：%s",
+                               node_name, " | ".join(state_errors))
             _append(record)
             # 清理本线程上下文（防泄漏到下一次非图执行期的 LLM 记录）
             _tl.thread_id = None
