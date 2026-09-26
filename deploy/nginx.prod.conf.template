@@ -1,0 +1,94 @@
+# =====================================================================
+# AI 诊断平台 · Nginx 生产配置模板（v2.0 上线预案包 · W10 Day3）
+#
+# 使用方式（docker-compose.prod.yml 已接好，无需手动替换）：
+#   nginx:alpine 镜像的 templates 机制会在容器启动时自动做变量替换：
+#   模板里的 ${DOMAIN} ← compose 的 DEPLOY_DOMAIN 环境变量。
+#   （官方 envsubst 脚本只替换「已定义的环境变量」，$host / $remote_addr
+#    等 nginx 内置变量不受影响，可放心使用。）
+#
+# 备案通过当天要填的空只有两个：
+#   1. DEPLOY_DOMAIN=<你的备案域名>  （compose up 命令行传入）
+#   2. deploy/certs/ 下放好 fullchain.pem + privkey.pem（腾讯云证书，见 RUNBOOK 第 5 步）
+# =====================================================================
+
+# ---------- 80 端口：全部强跳 HTTPS ----------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    # certbot webroot 验证路径（若选 certbot 方式签发证书需要；云证书方式用不到，
+    # 留着无害——见 RUNBOOK「HTTPS 预案」两种方式的对比）
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---------- 443 端口：正式站点 ----------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    # 证书挂载路径：deploy/certs/ → /etc/nginx/certs/（compose 里 ro 只读挂载）
+    # 腾讯云下载 nginx 格式后重命名为这两个名字（RUNBOOK 第 5 步有命令）
+    ssl_certificate     /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+
+    # TLS：现代配置（腾讯云 TrustAsia 免费证书支持 TLS1.2/1.3）
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # 文件上传（对话附件 txt/docx/pdf/图片）：与后端上传限制对齐
+    # ——当时部署踩过的坑：不配的话默认 1m，用户传个带图的 PDF 直接 413
+    client_max_body_size 20m;
+
+    # ---------- 后端 API（含 SSE 流式对话） ----------
+    location /api/ {
+        proxy_pass http://backend:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # 域名 + HTTPS 后这两个头必须带 scheme，后端生成的链接（邮件重置等）才正确
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # ================= SSE 三件套（生产踩过的头号坑） =================
+        # proxy_buffering off：nginx 默认把上游响应攒够 buffer 再下发，SSE 事件
+        #   会被攒成一大坨——用户看到「打字机变 PPT」，长任务期间像死机。
+        #   当时就因为这个排查了半小时，务必保留！
+        # proxy_cache off：双保险，顺手关缓存路径污染。
+        # proxy_read_timeout 300s：方案生成 1-2 分钟 + 15s 心跳，5 分钟兜底。
+        #   若中间还有 CDN/云负载均衡，那边也要配≥此值的读超时。
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_set_header Connection "";
+    }
+
+    # ---------- 前端页面 ----------
+    location / {
+        proxy_pass http://frontend:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # Next.js HMR 用（生产无副作用，保留与 dev compose 一致）
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # 静态资源缓存：Next.js 产物带内容 hash，可放心长缓存
+    location /_next/static/ {
+        proxy_pass http://frontend:3000;
+        proxy_set_header Host $host;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+}
