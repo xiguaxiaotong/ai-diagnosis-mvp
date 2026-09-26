@@ -348,6 +348,7 @@ function TrendChart({ trend }: { trend: TrendDay[] }) {
 
   const W = 960;            // viewBox 宽
   const H = 160;            // 图高
+  const PAD_TOP = 14;       // 柱顶数值标签行（fontSize 9 + 上部空间，防裁切）
   const PAD_BOTTOM = 24;    // 日期标签区
   const chartH = H - PAD_BOTTOM;
   const n = trend.length;
@@ -359,7 +360,8 @@ function TrendChart({ trend }: { trend: TrendDay[] }) {
   const max = Math.max(1, ...trend.map((d) => Math.max(d.projects, d.leads)));
 
   const barX = (i: number, offset: number) => i * dayW + dayW / 2 - barW - gap / 2 + offset;
-  const barH = (v: number) => (v / max) * (chartH - 8);
+  // 最高柱也只能顶到 PAD_TOP（数值标签整行完整落在柱顶上方，不裁切）
+  const barH = (v: number) => (v / max) * (chartH - PAD_TOP);
 
   return (
     <svg
