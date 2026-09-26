@@ -32,8 +32,10 @@ import csv
 import io
 import json
 import logging
-from datetime import datetime, time as dt_time, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from datetime import time as dt_time
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -43,7 +45,16 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import require_admin
 from app.db.database import get_db
-from app.db.models import Case, Conversation, Lead, LeadNote, Project, User, Worksheet, WorksheetNote
+from app.db.models import (
+    Case,
+    Conversation,
+    Lead,
+    LeadNote,
+    Project,
+    User,
+    Worksheet,
+    WorksheetNote,
+)
 from app.services import project_service
 
 logger = logging.getLogger("app.api.admin")
@@ -128,8 +139,8 @@ def list_leads(
     )
 
     # 批量 fetch 关联 project / user 避免 N+1
-    project_ids = {l.project_id for l in leads if l.project_id is not None}
-    user_ids = {l.user_id for l in leads if l.user_id is not None}
+    project_ids = {ld.project_id for ld in leads if ld.project_id is not None}
+    user_ids = {ld.user_id for ld in leads if ld.user_id is not None}
     projects_map: dict[int, Project] = {}
     users_map: dict[int, User] = {}
     if project_ids:
@@ -140,9 +151,9 @@ def list_leads(
             users_map[u.id] = u
 
     return {
-        "items": [_lead_admin_view(l, projects_map.get(l.project_id) if l.project_id else None,
-                                    users_map.get(l.user_id) if l.user_id else None)
-                  for l in leads],
+        "items": [_lead_admin_view(ld, projects_map.get(ld.project_id) if ld.project_id else None,
+                                    users_map.get(ld.user_id) if ld.user_id else None)
+                  for ld in leads],
     }
 
 
@@ -174,8 +185,8 @@ def export_leads_csv(
     leads = query.order_by(Lead.updated_at.desc(), Lead.id.desc()).all()
 
     # 关联 project / user
-    project_ids = {l.project_id for l in leads if l.project_id is not None}
-    user_ids = {l.user_id for l in leads if l.user_id is not None}
+    project_ids = {ld.project_id for ld in leads if ld.project_id is not None}
+    user_ids = {ld.user_id for ld in leads if ld.user_id is not None}
     projects_map: dict[int, Project] = {}
     users_map: dict[int, User] = {}
     if project_ids:
@@ -191,7 +202,7 @@ def export_leads_csv(
     if leads:
         rows = db.execute(
             select(LeadNote.lead_id, sa_func.count(LeadNote.id))
-            .where(LeadNote.lead_id.in_({l.id for l in leads}))
+            .where(LeadNote.lead_id.in_({ld.id for ld in leads}))
             .group_by(LeadNote.lead_id)
         ).all()
         for lead_id, n in rows:
@@ -221,29 +232,31 @@ def export_leads_csv(
             "Lead 状态", "创建时间", "更新时间", "跟进数",
         ])
         yield buf.getvalue()
-        buf.seek(0); buf.truncate()
+        buf.seek(0)
+        buf.truncate()
 
-        for l in leads:
-            project = projects_map.get(l.project_id) if l.project_id else None
-            user = users_map.get(l.user_id) if l.user_id else None
+        for ld in leads:
+            project = projects_map.get(ld.project_id) if ld.project_id else None
+            user = users_map.get(ld.user_id) if ld.user_id else None
             row = [
-                l.id,
-                csv_safe(l.name),
-                csv_safe(l.phone),
-                csv_safe(l.company),
-                csv_safe(l.note),
+                ld.id,
+                csv_safe(ld.name),
+                csv_safe(ld.phone),
+                csv_safe(ld.company),
+                csv_safe(ld.note),
                 csv_safe(user.username if user else None),
                 csv_safe(user.email if user else None),
                 csv_safe(project.title if project else None),
                 csv_safe(project.status if project else None),
-                csv_safe(l.status),
-                l.created_at.isoformat() if l.created_at else "",
-                l.updated_at.isoformat() if l.updated_at else "",
-                note_counts.get(l.id, 0),
+                csv_safe(ld.status),
+                ld.created_at.isoformat() if ld.created_at else "",
+                ld.updated_at.isoformat() if ld.updated_at else "",
+                note_counts.get(ld.id, 0),
             ]
             w.writerow(row)
             yield buf.getvalue()
-            buf.seek(0); buf.truncate()
+            buf.seek(0)
+            buf.truncate()
 
     # 文件名：leads_YYYYMMDD_HHMMSS.csv
     fname = f"leads_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -764,8 +777,8 @@ def list_worksheets(
     lead_ids = {w.lead_id for w in worksheets if w.lead_id is not None}
     leads_map: dict[int, Lead] = {}
     if lead_ids:
-        for l in db.scalars(select(Lead).where(Lead.id.in_(lead_ids))).all():
-            leads_map[l.id] = l
+        for ld in db.scalars(select(Lead).where(Lead.id.in_(lead_ids))).all():
+            leads_map[ld.id] = ld
     return {"items": [_ws_admin_view(w, leads_map.get(w.lead_id) if w.lead_id else None)
                       for w in worksheets]}
 
@@ -878,8 +891,6 @@ TREND_DAYS = 14
 # 还停在前一天），今日新增偏低、趋势错位一天。DB 里 created_at 仍存
 # UTC（func.now()，不动库），只在「分桶/过滤」时换算：北京零点 → UTC
 # 再比较。trend 的 date 键也是北京日期。
-from zoneinfo import ZoneInfo
-
 BJ_TZ = ZoneInfo("Asia/Shanghai")
 
 
@@ -891,7 +902,7 @@ def _bj_date_key(dt_utc: datetime | None) -> str | None:
     """UTC naive datetime → 北京日期键（trend 分桶用）。"""
     if dt_utc is None:
         return None
-    return dt_utc.replace(tzinfo=timezone.utc).astimezone(BJ_TZ).date().isoformat()
+    return dt_utc.replace(tzinfo=UTC).astimezone(BJ_TZ).date().isoformat()
 
 
 def _bj_midnight_utc(bj_days_ago: int = 0) -> datetime:
@@ -901,7 +912,7 @@ def _bj_midnight_utc(bj_days_ago: int = 0) -> datetime:
     """
     bj_today = _bj_now().date() - timedelta(days=bj_days_ago)
     bj_midnight = datetime.combine(bj_today, dt_time.min, tzinfo=BJ_TZ)
-    return bj_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+    return bj_midnight.astimezone(UTC).replace(tzinfo=None)
 
 
 def _count_today(db: Session, model, col) -> int:

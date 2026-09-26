@@ -7,9 +7,9 @@ _extract_json 剥围栏 → Pydantic 校验。
 import json
 import logging
 
+from app.agent.nodes.understand import extract_json
 from app.agent.prompt_loader import render
 from app.agent.schemas import FeasibilityReport
-from app.agent.nodes.understand import extract_json
 from app.agent.state import DiagnosisState
 from app.infra.model_client import chat_client
 

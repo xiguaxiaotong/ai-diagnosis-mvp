@@ -12,7 +12,6 @@ from app.agent.nodes.confirm import (
 from app.agent.nodes.consult import is_consult
 from app.retrieval.splitter import split_text
 
-
 # ---------- 意图分流：is_consult（误伤需求 = 严重回归） ----------
 
 @pytest.mark.parametrize("text", [
@@ -103,7 +102,7 @@ def test_embedding_dim():
 
 def test_project_crud_and_cascade():
     from app.db.database import SessionLocal
-    from app.db.models import Conversation, Project
+    from app.db.models import Conversation
     from app.services import project_service
 
     db = SessionLocal()

@@ -14,7 +14,6 @@
     python scripts/cleanup_dangling_refs.py            # 清主库
     SQLITE_PATH=... python scripts/cleanup_dangling_refs.py  # 清指定库（env 覆盖）
 """
-import os
 import sys
 from pathlib import Path
 

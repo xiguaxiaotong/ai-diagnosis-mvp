@@ -14,9 +14,9 @@ M0 阶段接口：
 - POST /api/cases/upload  案例上传
 """
 
-from contextlib import asynccontextmanager
 import json
 import secrets
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -67,6 +67,7 @@ app.include_router(leads_router)
 app.include_router(admin_router)
 # Day4 账户系统（注册/登录/会话）
 from app.api.auth import router as auth_router  # noqa: E402
+
 app.include_router(auth_router)
 
 

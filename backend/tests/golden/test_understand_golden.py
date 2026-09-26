@@ -32,8 +32,8 @@ import pytest
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent))  # backend/
 
-from app.agent.nodes.understand import understand_node  # noqa: E402
 from app.agent.nodes.budget import parse_budget  # noqa: E402
+from app.agent.nodes.understand import understand_node  # noqa: E402
 from app.config import DEEPSEEK_API_KEY  # noqa: E402
 
 pytestmark = [pytest.mark.llm, pytest.mark.slow]

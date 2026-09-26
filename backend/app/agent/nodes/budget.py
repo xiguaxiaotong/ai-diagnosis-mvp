@@ -243,7 +243,10 @@ def estimate_budget(plan: dict, requirements: dict | None, tier: dict | None = N
                 f"已按最小可行方案测算，区间 {total_min}-{total_max} 元"
             )
         else:
-            budget_match = f"用户提及预算「{mentioned}」但无法解析具体金额，测算区间为 {total_min}-{total_max} 元，需与用户确认"
+            budget_match = (
+                f"用户提及预算「{mentioned}」但无法解析具体金额，"
+                f"测算区间为 {total_min}-{total_max} 元，需与用户确认"
+            )
     else:
         budget_match = "用户未提及预算"
 

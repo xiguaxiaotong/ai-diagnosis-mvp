@@ -1,0 +1,35 @@
+# W9 热身：代码规范收编（ruff）
+# 原则：低风险、不碰业务逻辑——只收编格式/导入/明显坏味道，
+# 盲 except（BLE001）这类本项目有意为之的写法（trace 落盘绝不影响主流程）不进规则集。
+
+target-version = "py311"
+line-length = 120 # 中文注释项目，88 列不现实；120 列下存量仅 6 条超长
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort（导入排序）
+    "B",   # bugbear（常见 bug 模式）
+    "UP",  # pyupgrade（语法现代化）
+    "RUF", # ruff 自家规则
+]
+ignore = [
+    "B008",   # FastAPI Depends() 写在参数默认值是官方惯例
+    "RUF001", # 中文项目：全角标点误报
+    "RUF002", # 同上（docstring）
+    "RUF003", # 同上（comment）
+]
+
+[lint.per-file-ignores]
+# 脚本/测试：一次性验证代码，宽松处理
+# E402：脚本先 os.chdir 到 backend/ 再 import app.* 是刻意模式（保证数据路径解析）
+"scripts/*" = ["B", "RUF", "E402"]
+"tests/*" = ["B", "RUF"]
+# alembic 迁移是生成物，不归我们 lint
+"alembic/*" = ["ALL"]
+
+[format]
+# 项目现有风格：双引号（ruff format 暂不强制启用，本次只做 check）
+quote-style = "double"

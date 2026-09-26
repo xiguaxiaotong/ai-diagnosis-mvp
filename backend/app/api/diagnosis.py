@@ -15,8 +15,8 @@ import json
 import logging
 import queue
 import threading
-import time
-from typing import Any, Iterator, Literal
+from collections.abc import Iterator
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -179,7 +179,8 @@ def _chat_sse_response(
                     break
                 if payload[0] == "stage":
                     node, label = payload[1]
-                    yield f"data: {json.dumps({'type': 'stage', 'stage': node, 'label': label}, ensure_ascii=False)}\n\n"
+                    stage_event = json.dumps({"type": "stage", "stage": node, "label": label}, ensure_ascii=False)
+                    yield f"data: {stage_event}\n\n"
                 elif payload[0] == "token":
                     # LLM token 实时流出 → 直接转 SSE delta（真流式）
                     yield _sse({"type": "delta", "content": payload[1]})
@@ -243,7 +244,7 @@ async def chat_upload(
     try:
         text = file_extract.extract_text(file.filename, data)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     # 第一层防御：用强分隔标记包裹文件内容，明确告诉 LLM 这是资料而非指令。
     # DeepSeek 等主流 LLM 在 system prompt 与文档内指令冲突时会优先信任 system/格式标记。
@@ -337,7 +338,7 @@ def export_project_pdf(
     try:
         solution = json.loads(project.plan)
     except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="方案数据异常，无法导出")
+        raise HTTPException(status_code=500, detail="方案数据异常，无法导出") from None
 
     data = pdf_service.build_solution_pdf(solution)
     filename = quote(f"方案-{project.title}.pdf")

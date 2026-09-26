@@ -6,9 +6,9 @@ Case.vector_id 存这个前缀，删除/查询时按前缀定位。
 
 import logging
 from pathlib import Path
+
 from sqlalchemy.orm import Session
 
-from app.config import CASES_DIR
 from app.db.models import Case
 from app.retrieval.loader import ingest_file
 from app.retrieval.vector_store import get_vector_store

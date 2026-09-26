@@ -35,7 +35,6 @@ from app.agent.nodes.confirm import (
     wait_confirmation_node,
 )
 from app.agent.nodes.consult import (
-    ROUTE_REQUIREMENT,
     consult_node,
     consult_router,
     route_intent_node,
@@ -48,7 +47,6 @@ from app.agent.nodes.retrieve import retrieve_node
 from app.agent.nodes.understand import understand_node
 from app.agent.state import DiagnosisState
 from app.agent.trace import traced
-from app.config import DATA_DIR
 
 
 def build_graph():

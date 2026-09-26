@@ -15,13 +15,11 @@
 """
 import time
 from collections import defaultdict, deque
-from typing import Dict, Deque
 
 from fastapi import HTTPException, Request
 
-
 # IP+scope → 时间戳队列（单调时钟）
-_attempts: Dict[str, Deque[float]] = defaultdict(deque)
+_attempts: dict[str, deque[float]] = defaultdict(deque)
 
 
 def client_ip(request: Request) -> str:

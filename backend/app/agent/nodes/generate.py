@@ -8,9 +8,9 @@ _extract_json 剥围栏 → Pydantic 校验。
 import json
 import logging
 
+from app.agent.nodes.understand import extract_json
 from app.agent.prompt_loader import render
 from app.agent.schemas import SolutionPlan
-from app.agent.nodes.understand import extract_json
 from app.agent.state import DiagnosisState
 from app.infra.model_client import chat_client
 
@@ -31,12 +31,11 @@ def generate_node(state: DiagnosisState) -> dict:
     cases = state.get("retrieved_cases") or []
     cases_section = ""
     if cases:
-        lines = [
-            f"- 《{c['title']}》"
-            f"{f"[{c['industry']}] " if c.get('industry') else ''}"
-            f"{c['summary']}（相似度 {c['score']:.2f}）"
-            for c in cases
-        ]
+        lines = []
+        for c in cases:
+            # 行业标签存在才拼（嵌套 f-string 复用双引号是 py3.12 语法，改用中间变量兼容 3.11）
+            head = f"[{c['industry']}] " if c.get("industry") else ""
+            lines.append(f"- 《{c['title']}》{head}{c['summary']}（相似度 {c['score']:.2f}）")
         cases_section = "\n## 相似历史案例（真实项目复盘，供参考）\n\n" + "\n".join(lines) + "\n"
         logger.info("[generate] 注入 %d 个相似案例", len(cases))
 

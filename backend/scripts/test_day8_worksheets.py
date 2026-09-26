@@ -23,7 +23,6 @@
 import os
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 # ---------- 测试隔离：env 必须在 import app 之前设置 ----------
@@ -42,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db.database import SessionLocal, init_db  # noqa: E402
-from app.db.models import Lead, Project, User  # noqa: E402
+from app.db.models import Lead, Project  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services import project_service  # noqa: E402
 
@@ -189,7 +188,7 @@ def main():
     for s in steps:
         r = client.patch(f"/api/admin/worksheets/{ws2}", json={"status": s}, headers=admin_h)
         check(f"→ {s} 200", r.status_code == 200, r.text[:150])
-        check(f"  返回新 next_statuses", "next_statuses" in r.json())
+        check("  返回新 next_statuses", "next_statuses" in r.json())
     r = client.patch(f"/api/admin/worksheets/{ws2}", json={"status": "communicating"}, headers=admin_h)
     check("终态 won→communicating 400", r.status_code == 400)
     # 时间线：3 次流转 = 3 条 status_change

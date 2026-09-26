@@ -28,7 +28,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -113,7 +113,6 @@ model_client.chat_client._client = SimpleNamespace(
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import agent  # noqa: E402
 from app.agent import trace as trace_mod  # noqa: E402
 from app.config import TRACE_PATH  # noqa: E402
 from app.db.database import SessionLocal, init_db  # noqa: E402
@@ -136,7 +135,7 @@ def check(name: str, ok: bool, detail: str = ""):
 
 
 def _load_trace() -> list[dict]:
-    with open(TRACE_PATH, "r", encoding="utf-8") as f:
+    with open(TRACE_PATH, encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
 

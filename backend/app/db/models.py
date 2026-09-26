@@ -12,8 +12,20 @@
 """
 
 from datetime import date, datetime
+from typing import ClassVar
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, func, text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -303,8 +315,8 @@ class Worksheet(Base):
     )
     # 终态：不可再流转
     TERMINAL_STATUSES: tuple[str, ...] = (STATUS_WON, STATUS_CLOSED)
-    # 合法流转白名单（from → {to}）
-    TRANSITIONS: dict[str, frozenset[str]] = {
+    # 合法流转白名单（from → {to}）；ClassVar：类级常量而非 ORM 列
+    TRANSITIONS: ClassVar[dict[str, frozenset[str]]] = {
         STATUS_TO_CONFIRM: frozenset({STATUS_COMMUNICATING, STATUS_CLOSED}),
         STATUS_COMMUNICATING: frozenset({STATUS_QUOTED, STATUS_CLOSED}),
         STATUS_QUOTED: frozenset({STATUS_WON, STATUS_CLOSED}),

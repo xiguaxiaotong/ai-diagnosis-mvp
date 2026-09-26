@@ -2,7 +2,6 @@
 
 import logging
 import time
-from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -43,11 +42,11 @@ def upload_case(
         case = case_service.create_case_from_file(db, save_path, title, industry)
     except ValueError as e:
         save_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception:
         save_path.unlink(missing_ok=True)
         logger.exception("案例入库失败")
-        raise HTTPException(status_code=500, detail="案例入库失败，详见后端日志")
+        raise HTTPException(status_code=500, detail="案例入库失败，详见后端日志") from None
     return case_service.case_to_dict(case)
 
 

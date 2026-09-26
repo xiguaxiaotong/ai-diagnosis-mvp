@@ -12,8 +12,8 @@ from datetime import datetime
 
 from app.agent.state import DiagnosisState
 from app.db.database import SessionLocal
-from app.infra import stream_sink
 from app.db.models import Project
+from app.infra import stream_sink
 from app.services import project_service
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def _build_final_output(state: DiagnosisState) -> str:
     lines: list[str] = []
 
     # 一句话大白话总结置顶（产品规则 #7：方案最开头先放一句总结）
-    lines.append("📋 方案完成：《%s》" % plan.get("project_name", "未命名项目"))
+    lines.append(f"📋 方案完成：《{plan.get('project_name', '未命名项目')}》")
     lines.append("")
     if plan.get("one_liner"):
         lines.append(f"💡 一句话总结：{plan['one_liner']}")

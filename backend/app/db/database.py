@@ -67,8 +67,9 @@ def init_db() -> None:
         Base.metadata.create_all(bind=engine)
         return
 
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     cfg = Config(str(backend_dir / "alembic.ini"))
     cfg.set_main_option("script_location", str(backend_dir / "alembic"))

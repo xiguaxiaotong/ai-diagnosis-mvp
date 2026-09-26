@@ -15,8 +15,9 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Optional
 
 from openai import OpenAI
 
@@ -43,14 +44,14 @@ class ChatClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
     ):
         self.model = model or CHAT_MODEL
         self._api_key = api_key or DEEPSEEK_API_KEY
         self._base_url = base_url or DEEPSEEK_BASE_URL
-        self._client: Optional[OpenAI] = None
+        self._client: OpenAI | None = None
 
     def _ensure_client(self) -> OpenAI:
         """懒加载 OpenAI 客户端（导入模块时不需要 key）。"""
@@ -67,7 +68,7 @@ class ChatClient:
         return self._client
 
     @log_duration("chat")
-    def chat(self, messages: List[dict], temperature: float = CHAT_TEMPERATURE, **kwargs) -> str:
+    def chat(self, messages: list[dict], temperature: float = CHAT_TEMPERATURE, **kwargs) -> str:
         """非流式对话，返回完整回复文本。自动记录耗时与 token 用量。"""
         from app.agent.trace import llm_input_summary, record_llm
         start = time.perf_counter()
@@ -95,7 +96,7 @@ class ChatClient:
         return content
 
     def stream_chat(
-        self, messages: List[dict], temperature: float = CHAT_TEMPERATURE, **kwargs
+        self, messages: list[dict], temperature: float = CHAT_TEMPERATURE, **kwargs
     ) -> Iterator[str]:
         """流式对话，逐段 yield 文本片段。结束时记录耗时与 token 用量。
 
@@ -155,7 +156,7 @@ class EmbeddingClient:
                 cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, model_name: Optional[str] = None, device: Optional[str] = None):
+    def __init__(self, model_name: str | None = None, device: str | None = None):
         if self._initialized:
             return
         self.model_name = model_name or EMBEDDING_MODEL_NAME
@@ -188,7 +189,7 @@ class EmbeddingClient:
         self._model = SentenceTransformer(self.model_name, device=self.device)
 
     @log_duration("embed")
-    def embed(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
+    def embed(self, texts: list[str], is_query: bool = False) -> list[list[float]]:
         """批量文本转向量。is_query=True 时加检索指令前缀（bge 官方建议）。"""
         self._ensure_loaded()
         if is_query:
@@ -196,11 +197,11 @@ class EmbeddingClient:
         vectors = self._model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
         return [v.tolist() for v in vectors]
 
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> list[float]:
         """单条查询转向量（加检索指令前缀）。"""
         return self.embed([text], is_query=True)[0]
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """文档入库转向量（不加指令前缀）。"""
         return self.embed(texts, is_query=False)
 

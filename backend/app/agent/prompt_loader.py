@@ -5,13 +5,13 @@ Prompt 全部放在 app/agent/prompts/*.txt，与代码解耦（方便评审和�
 不用 str.format，因为 Prompt 里常有 JSON 示例的花括号。
 """
 
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 
-@lru_cache(maxsize=None)
+@cache
 def load_prompt(name: str) -> str:
     """读取并缓存 Prompt 模板。name 不带扩展名，如 "understand"。"""
     path = PROMPTS_DIR / f"{name}.txt"

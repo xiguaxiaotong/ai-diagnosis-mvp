@@ -8,7 +8,6 @@ pytest 版只收 md 文件路径，pdf/docx 属 e2e 不收。
 
 import pytest
 
-from app.retrieval.splitter import split_text
 from app.retrieval.vector_store import get_vector_store
 
 CASE_MD = """# 社区团购接龙小程序案例

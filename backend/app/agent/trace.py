@@ -25,8 +25,11 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
+
+from langchain_core.runnables import RunnableConfig
 
 from app.config import TRACE_PATH
 
@@ -50,7 +53,7 @@ def _summary(text: Any, limit: int = _SUMMARY_LIMIT) -> str:
         except Exception:
             text = str(text)
     text = text.replace("\n", " ").strip()
-    return text[:limit]
+    return str(text)[:limit]
 
 
 def _node_input_summary(state: Any) -> str:
@@ -82,7 +85,7 @@ def llm_input_summary(messages: Any) -> str:
 def _append(record: dict[str, Any]) -> None:
     """追加写一条 trace。任何失败只打日志，绝不向上抛。"""
     try:
-        record["ts"] = datetime.now(timezone.utc).isoformat()
+        record["ts"] = datetime.now(UTC).isoformat()
         TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(TRACE_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
@@ -91,14 +94,14 @@ def _append(record: dict[str, Any]) -> None:
                        str(TRACE_PATH), exc_info=True)
 
 
-def traced(node_name: str, fn: Callable) -> Callable:
+def traced(node_name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
     """节点包装器：记录 {thread_id, 节点名, 开始/耗时, 输入/输出摘要, token}。
 
     注意不能用 functools.wraps：LangGraph 用 inspect.signature 决定是否
     注入 config，wraps 会让签名穿透回原函数的 (state) —— config 就拿不到了。
     """
 
-    def wrapper(state, config=None, *args, **kwargs):
+    def wrapper(state: Any, config: RunnableConfig | None = None, *args: Any, **kwargs: Any) -> Any:
         thread_id = None
         try:
             thread_id = ((config or {}).get("configurable") or {}).get("thread_id")
@@ -111,7 +114,7 @@ def traced(node_name: str, fn: Callable) -> Callable:
         _tl.tokens = {"prompt": 0, "completion": 0}
 
         start = time.perf_counter()          # 耗时基准（单调钟，跨零点/校时安全）
-        start_at = datetime.now(timezone.utc)  # 开始时刻（epoch 钟；perf_counter 不是
+        start_at = datetime.now(UTC)  # 开始时刻（epoch 钟；perf_counter 不是
         #                                      epoch，拿它换算会得到 1970+开机时长）
         error = None
         interrupted = False
@@ -204,7 +207,7 @@ def read_trace(thread_id: str) -> list[dict[str, Any]]:
     try:
         if not TRACE_PATH.exists():
             return out
-        with open(TRACE_PATH, "r", encoding="utf-8") as f:
+        with open(TRACE_PATH, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -237,7 +240,7 @@ def aggregate_traces() -> dict[str, dict[str, Any]]:
     try:
         if not TRACE_PATH.exists():
             return sessions
-        with open(TRACE_PATH, "r", encoding="utf-8") as f:
+        with open(TRACE_PATH, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:

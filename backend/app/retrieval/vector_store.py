@@ -15,7 +15,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -33,7 +33,7 @@ MIN_SCORE = 0.0
 class VectorStore:
     """numpy 持久化向量库（cases 集合，cosine 相似度）。"""
 
-    def __init__(self, path: Optional[str] = None, collection_name: str = COLLECTION_NAME):
+    def __init__(self, path: str | None = None, collection_name: str = COLLECTION_NAME):
         base = Path(path or CHROMA_DIR)
         base.mkdir(parents=True, exist_ok=True)
         self._dir = base / collection_name
@@ -43,7 +43,7 @@ class VectorStore:
 
         # 内存数据：self._items 与 self._matrix 一一对应（按 list 顺序）
         self._items: list[dict[str, Any]] = []  # [{id, text, metadata}]
-        self._matrix: Optional[np.ndarray] = None  # (N, 512) float32
+        self._matrix: np.ndarray | None = None  # (N, 512) float32
         self._id_to_idx: dict[str, int] = {}  # id → list index（O(1) 查询）
         self._lock = threading.RLock()
 
@@ -121,7 +121,7 @@ class VectorStore:
         logger.info("upsert %d docs → %s", len(docs), COLLECTION_NAME)
         return len(docs)
 
-    def add_text(self, doc_id: str, text: str, metadata: Optional[dict] = None) -> None:
+    def add_text(self, doc_id: str, text: str, metadata: dict | None = None) -> None:
         """单条插入的便捷方法。"""
         self.upsert([{"id": doc_id, "text": text, "metadata": metadata}])
 
@@ -136,7 +136,7 @@ class VectorStore:
                 if idx is not None:
                     keep_mask[idx] = False
             if not keep_mask.all():
-                self._items = [it for it, k in zip(self._items, keep_mask) if k]
+                self._items = [it for it, k in zip(self._items, keep_mask, strict=False) if k]
                 if self._matrix is not None and len(self._items) > 0:
                     self._matrix = self._matrix[keep_mask]
                 else:
@@ -172,7 +172,7 @@ class VectorStore:
     # ---------- 读 ----------
 
     def search(self, query: str, top_k: int = DEFAULT_TOP_K,
-               where: Optional[dict] = None) -> list[dict[str, Any]]:
+               where: dict | None = None) -> list[dict[str, Any]]:
         """按相似度检索。返回按相似度降序的 hits，score = cosine sim。
 
         注：MVP 无 where 过滤（retriever 只用纯相似度检索），接口保留以兼容。
@@ -200,7 +200,7 @@ class VectorStore:
             })
         return hits
 
-    def get(self, doc_id: str) -> Optional[dict[str, Any]]:
+    def get(self, doc_id: str) -> dict[str, Any] | None:
         """按 id 取单条（不走向量）。"""
         idx = self._id_to_idx.get(doc_id)
         if idx is None:
@@ -212,7 +212,7 @@ class VectorStore:
 
 
 # 模块级单例（懒加载：首次调用才建库/加载模型）
-_store: Optional[VectorStore] = None
+_store: VectorStore | None = None
 _lock = threading.Lock()
 
 

@@ -105,7 +105,6 @@ def test_plan_structure(stub_llm, new_thread):
 def test_full_solution_and_persistence(stub_llm, make_project):
     from app.db.database import SessionLocal
     from app.db.models import Project
-    from app.services import project_service
 
     stub_llm["understand"] = "missing_then_full"
     pid = make_project()

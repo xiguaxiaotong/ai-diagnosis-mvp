@@ -2,7 +2,6 @@
 
 import io
 
-from app.config import CASES_DIR
 from app.db.database import SessionLocal
 from app.db.models import Case
 from app.retrieval.vector_store import get_vector_store

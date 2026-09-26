@@ -44,7 +44,9 @@ def fatal_node_error(stage: str, reason: str) -> dict:
     return {"error": f"{stage} 失败: {reason}"}
 
 
-def safe_call_llm_json(stage: str, prompt: str, temperature: float, max_retries: int = 2) -> tuple[str | None, str | None]:
+def safe_call_llm_json(
+    stage: str, prompt: str, temperature: float, max_retries: int = 2
+) -> tuple[str | None, str | None]:
     """统一 LLM 调用入口：兼容 response_format=json_object 失败退化 + 重试。
 
     返回 (answer, error_reason)：成功 answer 非空；失败 answer=None, error_reason 为可读原因。

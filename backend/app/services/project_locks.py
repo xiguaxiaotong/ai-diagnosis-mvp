@@ -15,7 +15,6 @@ clarify_round 只算一次、requirements 互相覆盖等），后果是用户�
 import logging
 import threading
 import time
-from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 _LOCK_TTL_SECONDS = 600
 
 # project_id -> (lock, last_active_ts)
-_project_locks: Dict[int, Tuple[threading.Lock, float]] = {}
+_project_locks: dict[int, tuple[threading.Lock, float]] = {}
 _meta_lock = threading.Lock()  # 保护字典本身的并发读写
 
 
