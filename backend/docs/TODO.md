@@ -53,36 +53,63 @@ missing_info 会清空，question_details 不清，所以 budget 执行时脏数
 
 ---
 
-## T-2 generate 节点 LLM 漏字段 → 整链 error 兜底（T-1 定位时顺带发现，未修）
+## T-2 generate 节点 LLM 漏字段 → 整链 error 兜底 —— ✅ 已关闭（W9，T-1 定位时顺带发现，趁热修）
 
-- **记录日期**：2026-09-26（W9，t1_budget_trace.py 第二次真跑时触发）
-- **状态**：未修（等拍板）
+- **记录日期**：2026-09-26（W9，t1_budget_trace.py 第二次真跑时触发）→ **关闭日期**：2026-09-26（W9）
+- **结论**：按字段性质分级处理（选项 3 变体：可选容错 + 必填点名重试一次），不一刀切全兜底。
 
-### 现象
+### 复现（scripts/t2_generate_repro.py，stub LLM 零真钱）
 
-generate 的 LLM 输出 `core_business_modules` 各模块**漏了 `priority` 字段**
-（pydantic SolutionPlan 校验失败 ×5）→ plan 缺失 → budget/feasibility 连锁
-error → output 只能给「方案生成遇到问题」兜底话术。当次真跑整链无方案。
+三种坏输出各跑完整图，确认修复前行为：
 
-```
-方案生成输出解析失败: 5 validation errors for SolutionPlan
-core_business_modules.0.priority  Field required [type=missing, ...]
-```
+| 模式 | 修复前 |
+|---|---|
+| optional（缺 one_liner/glossary/example） | pydantic 默认值静默补齐，主流程继续（无留痕） |
+| required（模块漏 priority，即真实触发场景） | generate 无重试直接 error → budget/feasibility 连锁失败 → output 兜底话术，**整链无方案** |
+| invalid（非 JSON） | 同上整链 error |
 
-### 判断
+### 根因
 
-- LLM 输出不确定性问题（temperature=0.3，同 prompt 一次过一次挂），
-  非本次预算改动引入（修复前后都可能触发）；
-- generate 节点**没有**校验失败重试（`_error.safe_call_llm_json` 有
-  max_retries=2 机制但 generate 未用），单次格式偏差直接判死。
+- generate 节点解析失败（JSON 解析 / pydantic 校验）**无任何重试**，
+  LLM 输出不确定性（temperature=0.3，同 prompt 一次过一次挂）下单次
+  格式偏差直接把整条方案链打进 error 兜底；
+- 错误粒度不分级的连带问题：可选字段（one_liner/glossary/example 有
+  默认值）本可安全补齐继续。
 
-### 处理选项（等拍板）
+### 修复（backend/app/agent/nodes/generate.py）
 
-1. generate 校验失败时重试（复用 `safe_call_llm_json`，附「上次输出缺 priority」提示）；
-2. 模块 `priority` 缺省容错（默认 P0/P1）——校验放宽，风险是定价口径被 LLM 摆布；
-3. 两者都做（先容错解析、再重试兜底）。
+- `_plan_problems()`：LLM 原始输出 → (data, 问题清单)。必填缺失的
+  ValidationError 逐条提取，序列下标归一
+  （`core_business_modules.0.priority` → `core_business_modules[].priority`）
+  去重，避免 5 个模块漏同一字段刷 5 条；
+- **分级策略**：
+  - 可选字段缺失 → pydantic 默认值补齐（本来就是安全默认），
+    `logger.warning` 留痕，主流程继续；
+  - 必填缺失 / 非法 JSON / 字段类型不合法 → **点名重试一次**：重试
+    prompt 追加「上次输出的问题（本次必须修正）」清单，LLM 不用猜
+    哪里错；仍失败才走 error 兜底，文案记明「重试后仍缺 X」。
 
-### 影响
+### 回归（tests/test_generate_fallback.py，stub LLM 零真钱，6 用例）
 
-- 触发概率：低（多轮真跑偶发一次）；触发后该会话无方案，用户需重新发起；
-- 不影响 budget 主链路（budget 只在 plan 校验通过后执行）。
+- 可选缺失：不报错 + 默认值补齐 + warning 留痕 + 不触发重试；
+- 必填缺失：恰好重试 1 次 + 重试 prompt 点名 `core_business_modules[].priority`；
+- 必填两次都缺：error 兜底 + 文案含「重试后仍缺」与字段名 + 不无限重试；
+- 非法 JSON：重试 1 次恢复 / 重试仍失败兜底；
+- 合格输出不重试（正常路径保护）。
+
+### 顺带修复（排障时发现的隐藏坑）
+
+alembic `env.py` 的 `fileConfig(config.config_file_name)` 默认
+`disable_existing_loggers=True`——pytest 收集阶段 import 的 app.* logger
+全在 `init_db→alembic` 之前注册，被整体 disabled，**测试内所有 app 日志
+（logger.warning / caplog）静默失效**，极难察觉。已改
+`disable_existing_loggers=False`。
+
+### 验证
+
+- 复现脚本修复后对照：optional 一次过；required/invalid 恰好 2 次调用
+  （重试生效），stub 恒坏时正确走 error 兜底；
+- 快速档 pytest 98 passed（+6 回归）0 warnings 0 xfail；
+- 黄金集 类型30/30 预算30/30 工期28/30 功能30/30 对比基线零退化；
+- ruff 全绿；mypy 基线 146→145（generate.py 重写自带类型并清零该文件，
+  基线明细见 docs/mypy_baseline.md）。

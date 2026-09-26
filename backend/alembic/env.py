@@ -26,7 +26,11 @@ config.set_main_option(
 )
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False（W9 T-2 排障结论）：fileConfig 默认 True，
+    # 会把「调用时已注册」的 logger 全部 disabled——pytest 收集阶段 import 的
+    # app.* logger 全在 init_db→alembic 之前注册，曾因此被整体静默
+    # （测试内 logger.warning / caplog 全部失效，极难察觉）。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
