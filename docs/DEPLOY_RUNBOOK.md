@@ -100,23 +100,89 @@ cd /home/ubuntu/ai-diagnosis
 
 # 镜像 tag 规范：v主.次.修（当天日期，例 2026-10-20 上线 = v2.0.0）
 # build 时 compose 自动把镜像打成该 tag（回滚靠它，见第 8 步）
-IMAGE_TAG=v2.0.0 DEPLOY_DOMAIN=__你的备案域名__ \
-  docker compose -f deploy/docker-compose.prod.yml up -d --build
+# ⚠️ 备案没批下来前用第 3A 步（IP 模式）；这是备案通过后的正式姿势
+IMAGE_TAG=v2.0.0 DEPLOY_DOMAIN=__你的备案域名__ DEPLOY_SCHEME=https \
+  COMPOSE_PROFILES=prod docker compose -f deploy/docker-compose.prod.yml up -d --build
 
 # 构建日志（后台跑 5-10 分钟，torch 装完大头就过了）：
 tail -f /tmp/diag-build.log   # 若走 deploy.py 触发；手动跑则直接看终端
 
 # 就绪后三容器状态 + 健康：
-docker compose -f deploy/docker-compose.prod.yml ps
+COMPOSE_PROFILES=prod docker compose -f deploy/docker-compose.prod.yml ps
 curl -s http://localhost/api/health        # 预期 {"status":"ok"}
 ```
 
 prod compose 相比现行 compose 的变化（细节见文件头注释）：
 - 镜像 tag 参数化（`IMAGE_TAG`）——回滚一条命令
+- **双模式（W11 Day3）**：`COMPOSE_PROFILES=ip`（备案前 IP 模式）/
+  `=prod`（域名模式），见第 3A 步；两套 nginx 服务互斥，模板各用各的
 - 四路径持久化：`backend/data`（sqlite+checkpoints）/ `backend/logs`（trace）/
   `backend/backups`（备份）/ `hf-cache`（bge 模型）
 - backend 带 healthcheck（urllib，90s start_period 等 alembic 迁移）
-- `BASE_URL` / `FRONTEND_ORIGIN` 自动指向 `https://__域名__`（邮件重置链接正确）
+- `BASE_URL` / `FRONTEND_ORIGIN` = `${DEPLOY_SCHEME:-http}://${DEPLOY_DOMAIN:-134.175.137.41}`
+  （IP 模式 http://IP；域名模式 https://域名，邮件重置链接才正确）
+
+---
+
+## 第 3A 步 · 备案前 IP 模式（域名没批下来，先用 IP 把全链路跑通）
+
+> 备案审核要等 1-2 周，不必干等。IP 模式 = nginx 只听 80（无 ssl、无强跳、
+> 无 certs 卷、无 443 映射），`FRONTEND_ORIGIN/BASE_URL = http://134.175.137.41`。
+> 备案下来后走第 3B 步 10 分钟切 HTTPS，不用重传任何东西。
+
+首选：`bash deploy/deploy_v2.sh`（DOMAIN 传 IP 自动选 IP 模式，7 步到探活）。
+手动等价命令：
+
+```bash
+ssh ubuntu@134.175.137.41
+cd /home/ubuntu/ai-diagnosis
+IMAGE_TAG=v2.0-rc DEPLOY_DOMAIN=134.175.137.41 \
+  COMPOSE_PROFILES=ip docker compose -f deploy/docker-compose.prod.yml up -d --build
+# 就绪后：nginx-ip 容器（同容器名 diag-nginx，只 80 端口）
+COMPOSE_PROFILES=ip docker compose -f deploy/docker-compose.prod.yml ps
+curl -s http://localhost/api/health        # 预期 {"status":"ok"}
+```
+
+本地验证四条主链路（默认就对准 IP）：
+```bash
+bash deploy/verify_deployment.sh           # BASE_URL 默认 http://134.175.137.41
+```
+
+IP 模式约束（有意为之，别绕）：
+- 纯 `http`：登录/诊断/项目全链路可验证；**别在公网传真实用户数据**
+  （备案+HTTPS 之前不算合规生产，只做链路验证）
+- 邮件重置链接会是 `http://IP/...`——能用但不正式，切 HTTPS 自动修正
+- 验证残留（smoke_v 用户）清理：`python3 deploy/cleanup_smoke.py backend/data/sqlite.db`
+
+---
+
+## 第 3B 步 · 备案下来后切 HTTPS（10 分钟内完成）
+
+> 前提：IP 模式已跑通（第 3A 步）。切换 = 换模式变量 + 放证书 + 重 up，
+> 代码、数据卷、镜像全部不动。
+
+```bash
+# ① DNS 解析 + 证书（第 4/5 步，可与下面并行；certs 放 deploy/certs/）
+#    fullchain.pem + privkey.pem（RUNBOOK 第 5 步有完整命令）
+
+# ② 服务器上切换（一条命令，~30s，不重 build）：
+ssh ubuntu@134.175.137.41
+cd /home/ubuntu/ai-diagnosis
+IMAGE_TAG=v2.0-rc DEPLOY_DOMAIN=__你的备案域名__ DEPLOY_SCHEME=https \
+  COMPOSE_PROFILES=prod docker compose -f deploy/docker-compose.prod.yml up -d
+#    → nginx-ip 容器被 nginx（域名模式）替换：80 强跳 443 + TLS
+
+# ③ 验证：
+curl -I http://__域名__              # 预期 301 → https
+curl -I https://__域名__             # 预期 200
+bash deploy/verify_deployment.sh    # 本地：BASE_URL=https://__域名__ 跑 4 链路
+```
+
+切换检查点：
+- [ ] `docker compose ps`：diag-nginx 起着（域名模式，443 有监听）
+- [ ] 浏览器锁头正常、无告警
+- [ ] 邮件重置链接域名已变 `https://域名`（BASE_URL 随 up 更新）
+- [ ] `.env` 无需改动（scheme/domain 由 compose 环境变量注入）
 
 ---
 
@@ -161,8 +227,8 @@ chmod 600 /home/ubuntu/ai-diagnosis/deploy/certs/privkey.pem   # 服务器上执
 
 ```bash
 cd /home/ubuntu/ai-diagnosis
-IMAGE_TAG=v2.0.0 DEPLOY_DOMAIN=__你的备案域名__ \
-  docker compose -f deploy/docker-compose.prod.yml up -d nginx
+IMAGE_TAG=v2.0.0 DEPLOY_DOMAIN=__你的备案域名__ DEPLOY_SCHEME=https \
+  COMPOSE_PROFILES=prod docker compose -f deploy/docker-compose.prod.yml up -d nginx
 ```
 
 ### 备选方案：certbot（Let's Encrypt，90 天续期，腾讯云证书搞不定时用）
@@ -260,8 +326,8 @@ cd /home/ubuntu/ai-diagnosis && python3 deploy/cleanup_smoke.py backend/data/sql
 cd /home/ubuntu/ai-diagnosis
 docker images | grep diag-          # 找上一个可用 tag，如 v1.9.0
 
-IMAGE_TAG=v1.9.0 DEPLOY_DOMAIN=__域名__ \
-  docker compose -f deploy/docker-compose.prod.yml up -d   # 只换容器，不重 build，~30s
+IMAGE_TAG=v1.9.0 DEPLOY_DOMAIN=__域名__ DEPLOY_SCHEME=https \
+  COMPOSE_PROFILES=prod docker compose -f deploy/docker-compose.prod.yml up -d   # 只换容器，不重 build，~30s
 
 curl -s http://localhost/api/health   # 预期 {"status":"ok"}
 ```
@@ -330,7 +396,7 @@ curl -s http://localhost/api/health   # 预期 {"status":"ok"}
 |---|---|---|
 | 代码传输（deploy_v2 第 1-3 步） | scp 断 / tar 解压失败 | **旧容器未动，无需回滚**——直接重跑 `bash deploy_v2.sh` |
 | .env / wheels 前置检查 | grep/ls 失败 | 无回滚动作：填 `DEEPSEEK_API_KEY` 或补传 torch wheel（RUNBOOK 第 0 步）后重跑 |
-| compose build/up（第 5 步） | build 报错 / 容器起不来 | `IMAGE_TAG=<上一版tag> DEPLOY_DOMAIN=域名 docker compose -f deploy/docker-compose.prod.yml up -d`（换 tag 不重 build，~30s）；build 报错先看 `docker logs diag-backend --tail 50` |
+| compose build/up（第 5 步） | build 报错 / 容器起不来 | `IMAGE_TAG=<上一版tag> DEPLOY_DOMAIN=<域名或IP> COMPOSE_PROFILES=<prod或ip> docker compose -f deploy/docker-compose.prod.yml up -d`（换 tag 不重 build，~30s）；build 报错先看 `docker logs diag-backend --tail 50` |
 | 健康检查 90s 未过（第 6 步） | /api/health 一直非 200 | 同上切旧 tag；排查：`ssh 服务器 'docker logs diag-backend --tail 50'`（常见：迁移报错 / DEEPSEEK_API_KEY 空） |
 | alembic 迁移失败（第 6 步） | upgrade head 非零 | **停 backend → 恢复库 → 起服**：`compose stop backend` → `python3 scripts/restore_backup.py backups/<最新快照> --apply` → `compose up -d backend`（restore 自带恢复前快照，可反向撤销） |
 | 数据校验不过（第 7 步） | users/projects 数 ≠ 12/26 | 传库被换或损坏：重传主库再 up；或按上行恢复备份快照 |

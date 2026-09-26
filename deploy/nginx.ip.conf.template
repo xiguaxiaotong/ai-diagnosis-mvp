@@ -1,0 +1,64 @@
+# =====================================================================
+# AI 诊断平台 · Nginx IP 模式模板（W11 Day3 · 备案前先用 IP 跑通全链路）
+#
+# 与 nginx.prod.conf.template（域名模式）的区别：
+#   - 只 listen 80：无 ssl、无 80→443 强跳（备案没下来，跳了反而打不开）
+#   - server_name _ 兜底：IP 访问 / 任何 Host 头都命中
+#   - 不引用 /etc/nginx/certs/（IP 模式 compose 也不挂 certs 卷和 443 端口）
+#
+# 何时用：DEPLOY_DOMAIN 传的是 IP（备案没批）。deploy_v2.sh 传 IP 时
+# 自动切本模板 + COMPOSE_PROFILES=ip。
+# 备案下来后：DEPLOY_DOMAIN 换域名重跑 deploy_v2.sh → 自动切回域名
+# 模式（80 强跳 443 + TLS），见 RUNBOOK「备案下来后切 HTTPS」。
+#
+# 同样走 nginx:alpine templates 机制（${DOMAIN} ← DEPLOY_DOMAIN）。
+# =====================================================================
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+
+    # 文件上传（对话附件 txt/docx/pdf/图片）：与后端上传限制对齐
+    # ——不配的话默认 1m，用户传个带图的 PDF 直接 413
+    client_max_body_size 20m;
+
+    # ---------- 后端 API（含 SSE 流式对话） ----------
+    location /api/ {
+        proxy_pass http://backend:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # IP 模式下 scheme=http；域名模式下这两个头带 https 才能让
+        # 后端生成的链接（邮件重置等）拼对（见域名模式模板注释）
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # ================= SSE 三件套（生产踩过的头号坑） =================
+        # proxy_buffering off：nginx 默认把上游响应攒够 buffer 再下发，SSE 事件
+        #   会被攒成一大坨——用户看到「打字机变 PPT」，长任务期间像死机。
+        #   务必保留，与域名模式一致！
+        # proxy_read_timeout 300s：方案生成 1-2 分钟 + 15s 心跳，5 分钟兜底。
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_set_header Connection "";
+    }
+
+    # ---------- 前端页面 ----------
+    location / {
+        proxy_pass http://frontend:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # Next.js HMR 用（生产无副作用，保留与 dev compose 一致）
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # 静态资源缓存：Next.js 产物带内容 hash，可放心长缓存
+    location /_next/static/ {
+        proxy_pass http://frontend:3000;
+        proxy_set_header Host $host;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+}

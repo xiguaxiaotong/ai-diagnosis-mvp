@@ -1,25 +1,25 @@
 # =====================================================================
-# AI 诊断平台 · 生产 compose（v2.0 上线预案包 · W10 Day3）
+# AI 诊断平台 · 生产 compose（v2.0 上线预案包 · W10 Day3 / W11 D3 双模式）
 #
 # 与根目录 docker-compose.yml（开发/演示用）的区别：
 #   1. 镜像 tag 参数化（IMAGE_TAG）：发布带版本 tag，回滚 = 换 tag 一条命令
-#   2. HTTPS：nginx 挂 TLS 证书 + 80 强跳 443（模板 nginx.prod.conf.template）
+#   2. 两种模式（W11 Day3「备案前 IP 模式」，由 COMPOSE_PROFILES 切换）：
+#      - IP 模式（备案没批，先用 IP 跑通全链路）：
+#          COMPOSE_PROFILES=ip DEPLOY_DOMAIN=134.175.137.41 \
+#            IMAGE_TAG=v2.0-rc docker compose -f deploy/docker-compose.prod.yml up -d
+#        → nginx-ip 只听 80（无 ssl/无强跳/无 certs 卷/无 443 映射），
+#          FRONTEND_ORIGIN/BASE_URL = http://134.175.137.41
+#      - 域名模式（备案通过后）：
+#          COMPOSE_PROFILES=prod DEPLOY_DOMAIN=你的域名 DEPLOY_SCHEME=https \
+#            IMAGE_TAG=v2.0.0 docker compose -f deploy/docker-compose.prod.yml up -d
+#        → nginx 80 强跳 443 + TLS（模板 nginx.prod.conf.template + deploy/certs/）
 #   3. 持久化四路径显式挂载：sqlite / checkpoints / logs / backups
-#   4. BASE_URL / FRONTEND_ORIGIN 自动指向 https://<备案域名>（邮件链接、CORS）
+#   4. deploy_v2.sh 会根据 DOMAIN 是 IP 还是域名自动选模式，不用手记
 #
 # ⚠️ 本文件所有相对路径基于 deploy/ 目录（compose v2 的 project directory
 #    = compose 文件所在目录），从任何位置 -f 调用都不受影响。
 #
-# 标准用法（服务器 /home/ubuntu/ai-diagnosis 下）：
-#   首次构建：
-#     IMAGE_TAG=v2.0.0 DEPLOY_DOMAIN=你的域名 \
-#       docker compose -f deploy/docker-compose.prod.yml up -d --build
-#   后续发布（镜像已 build 过，只换 tag 起容器）：
-#     IMAGE_TAG=v2.0.0 DEPLOY_DOMAIN=你的域名 \
-#       docker compose -f deploy/docker-compose.prod.yml up -d
-#   回滚（上一版 tag）：
-#     IMAGE_TAG=v1.9.x DEPLOY_DOMAIN=你的域名 \
-#       docker compose -f deploy/docker-compose.prod.yml up -d
+# 回滚：IMAGE_TAG=<旧 tag> + 同样的 COMPOSE_PROFILES 再 up -d，不重 build。
 # =====================================================================
 services:
   backend:
@@ -31,10 +31,12 @@ services:
     restart: unless-stopped
     env_file: ../.env
     environment:
-      # 同域反代下页面与 API 同源，CORS 白名单只是兜底
-      - FRONTEND_ORIGIN=https://${DEPLOY_DOMAIN:?必须提供备案域名（DEPLOY_DOMAIN）}
-      # 邮件里的重置密码等链接前缀：必须 https+域名，否则邮件链接打不开
-      - BASE_URL=https://${DEPLOY_DOMAIN:?}
+      # 同域反代下页面与 API 同源，CORS 白名单只是兜底。
+      # IP 模式（DEPLOY_SCHEME 默认 http）：http://134.175.137.41
+      # 域名模式：DEPLOY_SCHEME=https → https://域名
+      - FRONTEND_ORIGIN=${DEPLOY_SCHEME:-http}://${DEPLOY_DOMAIN:-134.175.137.41}
+      # 邮件里的重置密码等链接前缀：与 FRONTEND_ORIGIN 同源同 scheme
+      - BASE_URL=${DEPLOY_SCHEME:-http}://${DEPLOY_DOMAIN:-134.175.137.41}
       - HF_HOME=/data/hf-cache
     volumes:
       # ---- 持久化路径 1+2：sqlite 主库 + checkpoints（同在 data/ 下） ----
@@ -88,13 +90,40 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ---------- IP 模式 nginx（备案前；COMPOSE_PROFILES=ip 时启用） ----------
+  # 与域名模式 nginx 互斥（不同 profile，永不同时跑，container_name 不冲突）。
+  # 只 80、无 ssl/强跳/certs 卷/443 映射——见 nginx.ip.conf.template 头注释。
+  nginx-ip:
+    image: nginx:alpine
+    container_name: diag-nginx
+    restart: unless-stopped
+    profiles: [ip]
+    environment:
+      - DOMAIN=${DEPLOY_DOMAIN:-134.175.137.41}
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.ip.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------- 域名模式 nginx（备案通过后；COMPOSE_PROFILES=prod 时启用） ----------
   nginx:
     image: nginx:alpine
     container_name: diag-nginx
     restart: unless-stopped
+    profiles: [prod]
     environment:
       # nginx:alpine 的 templates 机制：容器启动自动 envsubst 模板里的 ${DOMAIN}
-      - DOMAIN=${DEPLOY_DOMAIN:?必须提供备案域名（DEPLOY_DOMAIN）}
+      - DOMAIN=${DEPLOY_DOMAIN:-134.175.137.41}
     ports:
       - "80:80"
       - "443:443"
