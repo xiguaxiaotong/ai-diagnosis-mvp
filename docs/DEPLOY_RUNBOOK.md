@@ -275,6 +275,52 @@ curl -s http://localhost/api/health   # 预期 {"status":"ok"}
 
 ---
 
+## 第 9 步 · 服务器端备份例行化（上线后立刻做，10 分钟）
+
+> 备份的完整闭环 = 自动备份 + 可验证的恢复。本机已用 `backup_full.py` 固化
+> （快照 = 主库 + checkpoints + 当日 purge 归档，备份副本 integrity 不过非零退出），
+> 服务器上是同一套脚本 + cron。
+
+### 自动备份（cron）
+
+```bash
+ssh ubuntu@134.175.137.41
+# ① 每天凌晨备份（prod compose 已挂载 backend/backups，容器外宿主机路径即可）
+crontab -e
+#    加一行（注意 CRON_TZ，见踩坑 P6；备份脚本是纯 python 无容器依赖）：
+CRON_TZ=Asia/Shanghai
+0 3 * * * cd /home/ubuntu/ai-diagnosis/backend && python3 scripts/backup_full.py >> backups/backup_full.log 2>&1
+
+# ② 磁盘水位：backups 在 compose 里已持久化到宿主机，注意磁盘告警（每份快照 ~1MB 级，7 份无压力）
+```
+
+> Windows 本机对应：`backend\scripts\register_backup_task.bat`（schtasks 每天
+> 03:00 跑同一脚本，注册后 `/Query` 验证；若已有 W9 的单库备份任务
+> AIDiagnosis-DBBackup，两个任务并存无害，也可 `/Delete /F` 换成全量版）。
+
+### 恢复三步（出事时）
+
+```bash
+# ① 停服（nginx 可以留着，先停 backend）
+cd /home/ubuntu/ai-diagnosis
+IMAGE_TAG=v2.0.0 DEPLOY_DOMAIN=__域名__ docker compose -f deploy/docker-compose.prod.yml stop backend
+
+# ② 替换库：dry-run 先校验快照，--apply 才动真库（替换前自动把当前真库快照成 pre_restore_*.db）
+python3 scripts/restore_backup.py backups/20260926_030000          # 只校验不写库
+python3 scripts/restore_backup.py backups/20260926_030000 --apply   # 真恢复
+
+# ③ 起服 + integrity 已由脚本强制（不 ok 非零退出），起服后验证
+IMAGE_TAG=v2.0.0 DEPLOY_DOMAIN=__域名__ docker compose -f deploy/docker-compose.prod.yml up -d backend
+curl -s http://localhost/api/health   # 预期 {"status":"ok"}
+```
+
+恢复注意：
+- `restore_backup.py --apply` 自带「恢复前快照」——恢复操作本身可撤销（再来一次反向恢复即可）；
+- 本机恢复同样三步：先停 uvicorn dev server 再 `--apply`（sqlite 被占会写脏页）；
+- purge 误删的数据不走本节：用 `purge_test_data.py --restore-file backups/purge_*.json`（W10 Day4 已演练全量恢复逐表一致）。
+
+---
+
 ## 踩坑清单（上线日异常排查先看这里）
 
 | # | 坑 | 症状 | 处置 |
