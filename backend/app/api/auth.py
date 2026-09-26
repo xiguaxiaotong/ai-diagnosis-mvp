@@ -210,6 +210,25 @@ def me(user: User = Depends(get_current_user)) -> dict[str, Any]:
     return {"user": _user_payload(user)}
 
 
+@router.post("/logout")
+def logout(
+    authorization: str = Header(default=""),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """登出：删掉当前会话行，token 立即失效（W10 Day1 冒烟「登出后权限回收」）。
+
+    幂等且不泄漏信息：无 token / 无效 token / 重复登出都返回同一 200 文案
+    （登出本来就允许重复调用，且响应不应成为探测 token 是否有效的口子）。
+    """
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        session = db.get(AuthSession, token)
+        if session is not None:
+            db.delete(session)
+            db.commit()
+    return {"ok": True, "message": "已登出"}
+
+
 # ---------- W7 Day2：个人中心（PATCH /me） ----------
 
 

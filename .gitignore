@@ -21,6 +21,8 @@ backend/data/chroma/*
 !backend/data/chroma/.gitkeep
 backend/data/cases/*
 !backend/data/cases/.gitkeep
+# W10 冒烟专用库（run_smoke.bat 每次重建，属运行产物）
+backend/data/smoke/
 
 # 运行时 trace（W8 Day1 节点级调用链日志，追加写、只查不删）
 backend/logs/

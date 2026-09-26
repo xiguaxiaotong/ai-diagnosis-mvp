@@ -32,6 +32,28 @@ def test_health(client):
     assert r.json() == {"status": "ok"}
 
 
+def test_auth_logout_revocation(client):
+    """W10 Day1：登出 → token 立即失效（权限回收）；幂等；重新登录恢复。"""
+    r = client.post("/api/auth/register", json={
+        "username": "api_logout_user", "password": "api_logout_1"})
+    assert r.status_code == 201, r.text
+    headers = {"Authorization": "Bearer " + r.json()["token"]}
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+    # 登出 → 旧 token 权限回收
+    assert client.post("/api/auth/logout", headers=headers).status_code == 200
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+    # 幂等：无效 token 重复登出仍 200（不泄漏 token 有效性）
+    assert client.post("/api/auth/logout", headers=headers).status_code == 200
+
+    # 重新登录恢复
+    r = client.post("/api/auth/login", json={
+        "username": "api_logout_user", "password": "api_logout_1"})
+    assert r.status_code == 200, r.text
+    assert client.get("/api/auth/me",
+                      headers={"Authorization": "Bearer " + r.json()["token"]}).status_code == 200
+
+
 def test_project_crud_api(client, admin_headers):
     p = _api_project(client, admin_headers, title="CRUD 接口项目")
     assert p["status"] == "diagnosing"
