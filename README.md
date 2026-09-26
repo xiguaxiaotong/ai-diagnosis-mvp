@@ -51,46 +51,33 @@ AIAgent 赋能服务平台（商业计划书见「初创团队文档」）M0 阶
 2. 点「历史项目」→「+ 新建演示项目」→ 列表出现新项目
 3. 点「删除」→ 项目消失（完整 CRUD 通路）
 
-## 各阶段验收脚本
+## 测试（pytest，W8 Day4 起统一入口）
 
-M0 基础设施：
+旧验收脚本（test_w2d1 ~ test_w5d6 / test_day2-4 / run_regression.py 等）
+已全部收编进 pytest 套件并删除，git 历史可查。run_regression.py 已废弃，
+一律用 pytest：
 
     cd backend
-    python scripts/test_day2.py embed   # Embedding 转向量（无需 key）
-    python scripts/test_day2.py chat    # DeepSeek 流式对话（需 key）
-    python scripts/test_day3.py         # 数据层 CRUD
-    python scripts/test_day4.py         # 调用日志（耗时 + token）
+    python -m pytest                          # 全量（含黄金集真 LLM ≈¥0.1 + bge 慢测试，~3 分钟）
+    python -m pytest -m "not llm and not slow" # 快速回归（stub LLM + 纯函数，~1 分钟，零 token）
+    python -m pytest tests/golden -q           # understand 黄金集评估（改 prompt 前后必跑，基线见 tests/golden/BASELINE.md）
 
-M1-P1 诊断智能体（均需 key）：
+套件结构（backend/tests/）：
 
-    python scripts/test_w2d1.py   # 需求理解：一句话→结构化 JSON
-    python scripts/test_w2d2.py   # 追问闭环：模糊需求→追问→回答→补全
-    python scripts/test_w2d3.py   # interrupt 多轮对话 + 5 轮强制结束
-    python scripts/test_w2d4.py   # 方案生成：业务/技术方案 JSON 校验
-    python scripts/test_w2d5.py   # 端到端：想法→追问→方案
+    conftest.py          # 公共基建：临时库 env 隔离 / TestClient / stub LLM / 造项目
+    test_budget.py       # 预算规则引擎（含 xfail：T-1 存量口径问题，见 docs/TODO.md）
+    test_models.py       # 纯函数：意图分流 / 确认路由 / 文档切分 / embedding / CRUD
+    test_diagnosis.py    # 诊断图：追问循环 / 5 轮强制 / 方案结构 / 确认循环话术
+    test_consult.py      # 咨询分流：不烧 token / 不消耗轮次 / 不打断确认
+    test_api.py          # HTTP 层：项目 CRUD / SSE 事件序列 / 确认接口 / 404
+    test_retrieval.py    # 向量库增删查 / 文档入库 / 案例检索端到端（slow：本地 bge）
+    test_admin.py        # 案例管理 API + admin 权限
+    golden/              # understand 黄金集（30 条种子 CSV 真实需求，真 LLM 评估）
 
-M2 诊断 API（均需 key，接口文档见 docs/api.md）：
+其余 scripts/test_day7/8/9、test_w8d1_trace、test_w8d23_traces 为近期
+里程碑验收脚本，独立运行（同样自带临时库隔离），后续按需收编。
 
-    python scripts/test_w3d1.py   # 预算测算节点（规则引擎，离线）
-    python scripts/test_w3d2.py   # 可行性评估 + 汇总持久化
-    python scripts/test_w3d3.py   # 用户确认循环 + 完整图编译
-    python scripts/test_w3d4.py   # P6 API（TestClient 走 FastAPI 全栈）
-    python scripts/test_w3d5.py   # 真实联调：uvicorn 子进程 + httpx 流式 SSE
-
-M3-P2 案例检索（离线，无需 key）：
-
-    python scripts/test_w4d1.py   # Chroma 增删查 + bge 向量
-    python scripts/test_w4d2.py   # 文档加载切分（PDF/docx/md）→ 入库
-    python scripts/test_w4d3.py   # 案例 API：上传 → SQLite+Chroma 双写 → 检索 → 删除
-    python scripts/test_w4d4.py   # 检索接入诊断图（方案引用真实案例，需 key）
-    python scripts/seed_cases.py  # 冷启动：录入 20 个标准案例（幂等）
-    python scripts/test_w4d5.py   # 案例库 Top5 检索相关性 + 方案引用（需 key）
-    python scripts/test_w5d1.py   # 首页创建新项目 + 历史列表（需前后端已启动）
-    python scripts/test_w5d2.py   # 聊天页 SSE 流式 + 多轮对话（需后端已启动，真调 LLM）
-    python scripts/test_w5d4.py   # 确认循环：修改回对话继续 + 确认收尾话术（需前后端已启动，真调 LLM）
-    python scripts/test_w5d5.py   # UI 移动适配与错误处理检查（需前后端已启动）
-    python scripts/test_w5d6.py   # 等待体验：SSE 阶段事件（正在理解需求/生成方案…，真调 LLM）
-    python scripts/test_w5d3.py   # 方案展示页数据完整 + 确认/修改通路（stub LLM，零 token）
+marker 说明：`llm` 真实 DeepSeek 调用；`slow` 本地 bge 模型加载等慢测试。
 
 ## 目录结构
 
