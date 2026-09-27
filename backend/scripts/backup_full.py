@@ -16,8 +16,15 @@
     python scripts/backup_full.py --prune 3    # 只保留最近 3 份
     python scripts/backup_full.py --no-prune   # 只备不清
 
+服务器 cron 用法（宿主 python3 无 venv，纯标准库）：
+    python3 scripts/backup_full.py --db data/sqlite.db --checkpoints data/checkpoints.sqlite
+
 Windows 计划任务注册：scripts/register_backup_task.bat（每天 03:00）。
 恢复：scripts/restore_backup.py（默认 dry-run，--apply 才动真库）。
+
+⚠️ 本脚本只准用标准库：设计上服务器 cron / 任何裸 python 都要能跑，
+曾因 import app.config 拖进 dotenv 依赖在服务器上 ModuleNotFoundError
+（W11 Day3 实战踩坑）。默认路径仍与 app.config 对齐。
 """
 from __future__ import annotations
 
@@ -32,11 +39,9 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from app.config import CHECKPOINTS_PATH, SQLITE_PATH  # noqa: E402
-
 BACKUP_ROOT = Path(__file__).resolve().parent.parent / "backups"
+DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "sqlite.db"
+DEFAULT_CP = Path(__file__).resolve().parent.parent / "data" / "checkpoints.sqlite"
 SNAPSHOT_DIR_RE = re.compile(r"^\d{8}_\d{6}$")  # 20260926_030000
 PRUNE_DEFAULT = 7
 
@@ -152,13 +157,16 @@ def prune_snapshots(backup_root: Path, keep: int, dry: bool = False) -> list[Pat
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="一键全量备份（主库+checkpoints+purge归档）")
+    ap.add_argument("--db", type=Path, default=DEFAULT_DB, help="主库路径（默认 data/sqlite.db）")
+    ap.add_argument("--checkpoints", type=Path, default=DEFAULT_CP,
+                    help="checkpoints 库路径（默认 data/checkpoints.sqlite）")
     ap.add_argument("--prune", type=int, default=PRUNE_DEFAULT,
                     help=f"保留最近 N 份快照（默认 {PRUNE_DEFAULT}；0 = 全清）")
     ap.add_argument("--no-prune", action="store_true", help="只备不清")
     ap.add_argument("--backup-root", type=Path, default=BACKUP_ROOT)
     args = ap.parse_args()
 
-    make_backup(SQLITE_PATH, CHECKPOINTS_PATH, args.backup_root)
+    make_backup(args.db, args.checkpoints, args.backup_root)
     if not args.no_prune:
         prune_snapshots(args.backup_root, args.prune)
     print("✅ 全量备份完成")
