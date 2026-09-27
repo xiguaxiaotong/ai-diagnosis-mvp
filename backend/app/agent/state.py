@@ -41,6 +41,7 @@ state.get("xxx") 的 dict 访问全部继续工作）。pydantic 模型是「校
 【InteractionState 交互子状态】→ 拆图后「交互/确认子图」的状态
   needs_clarify     写：understand/_error           读：check
   clarify_questions 写：understand/_error            读：ask/meta
+  answered_questions 写：understand（代码级登记）    读：understand/ask（防重复过滤）
   clarify_round     写：understand                   读：check/understand
   clarify_exhausted 写：force_finish                 读：check
   question_details  写：understand                   读：meta 下发前端
@@ -124,6 +125,7 @@ class InteractionState(BaseModel):
     clarify_exhausted: bool = False
     question_details: list[dict[str, Any]] = []
     pain_points: list[str] = []
+    answered_questions: list[dict[str, Any]] = []
     decision: str | None = None
     revision_round: int = 0
     revision_feedback: str | None = None
@@ -218,6 +220,9 @@ class DiagnosisState(TypedDict, total=False):
     question_details: list[dict[str, Any]]
     # [{question, examples[]}]，understand 每轮刷新，随 meta 下发给前端渲染点选 chip
     pain_points: list[str]         # LLM 每轮识别的痛点候选（前端渲染勾选卡）
+    answered_questions: list[dict[str, Any]]
+    # W11D4 已回答问题清单 [{question, answer}]：understand 代码级登记
+    # （含「还没定」等搁置型答案），clarify_questions 生成前先过滤，防重复追问
     decision: str                  # 用户决定：confirmed / revised / rejected / consult / pending
     revision_round: int            # 已修改轮次（上限 MAX_REVISION_ROUNDS）
     revision_feedback: str         # 用户最新一轮的修改要求（revise 时传给 generate）

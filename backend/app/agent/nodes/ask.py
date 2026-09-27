@@ -10,12 +10,16 @@ API 层直接读状态即可展示给用户。
 
 from langgraph.types import interrupt
 
+from app.agent.nodes.understand import filter_answered
 from app.agent.state import DiagnosisState
 
 
 def ask_node(state: DiagnosisState) -> dict:
     """生成追问消息并追加到 messages（确定性拼接，不调 LLM）。"""
     questions = state.get("clarify_questions", [])
+    # W11D4 双保险：已回答（含搁置型）的问题不再发问——understand 已过滤
+    # 一道，这里再拦一道，防旧 checkpoint / 异常路径漏网导致重复追问
+    questions = filter_answered(questions, state.get("answered_questions") or [])
     if not questions:
         return {}
 

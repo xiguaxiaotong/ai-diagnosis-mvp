@@ -63,6 +63,14 @@ class ProjectRequirements(BaseModel):
         default_factory=list,
         description="从用户描述中识别的痛点（大白话，2-4 条）",
     )
+    clarified_answers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "已回答问题的落档（W11D4 防重复追问）：『问题：答案』逐条，"
+            "搁置型答案（还没定/都行等）附带处理语义（如先做独立版）；"
+            "由 understand 节点代码级维护，LLM 不产出此字段"
+        ),
+    )
     summary: str = Field(description="用一段话（80 字内）复述需求，向用户确认理解")
 
 

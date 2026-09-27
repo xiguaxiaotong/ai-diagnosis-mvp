@@ -6,6 +6,7 @@
 import difflib
 import json
 import logging
+from typing import Any
 
 from app.agent.prompt_loader import render
 from app.agent.schemas import ProjectRequirements
@@ -66,6 +67,80 @@ def _parse_pain_confirm(raw_idea: str) -> tuple[list[str], str]:
     return points, rest
 
 
+# ---------- W11D4 防重复追问：已回答问题登记（代码级，不信任 LLM 自觉） ----------
+
+# 搁置型答案关键词：语义 = 「接受默认/最简方案」，视为有效回答而非空回答。
+# 覆盖快捷答题卡与自由输入的高频说法（还没定/以后再说/不确定/都行等）。
+DEFERRED_KEYWORDS = (
+    "还没定", "还没想好", "没想好", "以后再说", "再说吧", "不确定",
+    "不知道", "都行", "随便", "看着办", "无所谓", "没有特别要求", "听你的",
+)
+
+
+def is_deferred_answer(answer: str) -> bool:
+    """搁置型回答判定。
+
+    「还没定/以后再说/不确定/都行」是用户已表态（按默认/最简方案走），
+    不是空回答——继续追问同一问题只会激怒用户（线上 bug：同一问题原样再问）。
+    """
+    a = answer.strip()
+    return any(k in a for k in DEFERRED_KEYWORDS)
+
+
+def _similar_text(a: str, b: str) -> bool:
+    """文本近似判定：互相包含 或 序列相似度 ≥ 0.75 视为同一问题。"""
+    if not a or not b:
+        return False
+    if a in b or b in a:
+        return True
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.75
+
+
+def parse_quick_answers(text: str, questions: list[str]) -> list[tuple[str, str]]:
+    """从用户消息拆「问题：答案」对（前端答题卡逐行发送 `问题：label`）。
+
+    匹配宽容：全角/半角冒号都认；问题侧与上一轮问题全等/包含/高相似即对号。
+    兜底：上一轮只有 1 个问题且按行没匹配上时，整条消息视为该题的回答。
+    返回 [(上一轮问题原文, 用户答案原文)]。
+    """
+    pairs: list[tuple[str, str]] = []
+    for line in (l.strip() for l in text.splitlines()):
+        if not line:
+            continue
+        sep = "：" if "：" in line else (":" if ":" in line else None)
+        if not sep:
+            continue
+        q_part, a_part = line.split(sep, 1)
+        q_part, a_part = q_part.strip(), a_part.strip()
+        if not a_part:
+            continue
+        match = next((q for q in questions if _similar_text(q_part, q)), None)
+        if match:
+            pairs.append((match, a_part))
+    if not pairs and len(questions) == 1 and text.strip():
+        pairs.append((questions[0], text.strip()))
+    return pairs
+
+
+def filter_answered(questions: list[str], answered: list[dict[str, Any]]) -> list[str]:
+    """防重复兜底：已回答清单（含搁置型答案）里的问题一律从追问列表剔除。
+
+    不信任 LLM 一定听话——understand 的 missing_info 由 LLM 产出，
+    这里在代码层再拦一道（ask 节点也复用本函数做双保险）。
+    """
+    if not answered:
+        return questions
+    asked = [a["question"] for a in answered]
+    return [q for q in questions if not any(_similar_text(q, aq) for aq in asked)]
+
+
+def _deferred_note(question: str) -> str:
+    """搁置型答案落 requirements 的处理语义（对接类 → 先做独立版）。"""
+    if "对接" in question or "系统" in question:
+        return "（还没定：方案先按独立版设计，预留后续对接）"
+    return "（搁置型回答：方案按默认/最简方式处理）"
+
+
 def understand_node(state: DiagnosisState) -> dict:
     """执行需求理解，返回状态增量：requirements / needs_clarify / clarify_questions。
 
@@ -78,11 +153,28 @@ def understand_node(state: DiagnosisState) -> dict:
     prev_req = state.get("requirements") or {}
     prev_questions = state.get("clarify_questions", [])
 
+    # 最新用户消息（resume 轮答案在 messages 尾部，raw_idea 不更新）
+    last_user = next(
+        (m["content"] for m in reversed(history) if m.get("role") == "user"),
+        "",
+    )
+
+    # W11D4：登记已回答问题（含搁置型答案），同题新答案覆盖旧记录（最新值优先）
+    answered = [dict(item) for item in (state.get("answered_questions") or [])]
+    for q, a in parse_quick_answers(last_user, prev_questions):
+        answered = [item for item in answered if item["question"] != q]
+        answered.append({"question": q, "answer": a})
+
     # 渲染对话历史（最多取最近 6 条，控制 token；关键信息已在实体记忆里）
     history_text = "\n".join(
         f"{'用户' if m['role'] == 'user' else '顾问'}: {m['content']}"
         for m in history[-6:]
     ) or "（无）"
+
+    answered_text = (
+        "\n".join(f"- {item['question']}：{item['answer']}" for item in answered)
+        or "（暂无）"
+    )
 
     prompt = render(
         "understand",
@@ -90,6 +182,7 @@ def understand_node(state: DiagnosisState) -> dict:
         history=history_text,
         confirmed=json.dumps(prev_req, ensure_ascii=False) if prev_req else "（暂无，这是第一轮）",
         last_questions="\n".join(f"- {q}" for q in prev_questions) if prev_questions else "（无）",
+        answered=answered_text,
     )
 
     # DeepSeek 支持 response_format=json_object 强制 JSON 输出
@@ -120,13 +213,26 @@ def understand_node(state: DiagnosisState) -> dict:
 
     # 代码层兜底：LLM 漏抽的已答字段强制回填（实体记忆不丢）
     merged = _merge_requirements(prev_req, req.model_dump())
+
+    # W11D4：已回答问题落进 requirements（含搁置型答案的处理语义），
+    # generate 节点注入 requirements_json 时全程可见——「还没定」不再是空回答
+    clarified = [c for c in (merged.get("clarified_answers") or []) if isinstance(c, str)]
+    for item in answered:
+        line = f"{item['question']}：{item['answer']}"
+        if is_deferred_answer(item["answer"]):
+            line += _deferred_note(item["question"])
+        if line not in clarified:
+            clarified.append(line)
+    merged["clarified_answers"] = clarified
     req = ProjectRequirements.model_validate(merged)
 
     # 预算档位：用户提到预算 → 全局锁定（改口自然覆盖；没提过保持 None）
     from app.agent.budget_tier import classify_budget
     tier = classify_budget(req.mentioned_budget)
 
-    questions = req.missing_info[:3]
+    # W11D4 防重复兜底：已回答（含搁置型）的问题从追问列表剔除——
+    # 不信任 LLM 一定听话，代码层拦死「同一问题原样再问」
+    questions = filter_answered(req.missing_info[:3], answered)
 
     # A 组：question_details 与 missing_info 对齐（LLM 漏配/长度不齐时代码兜底）
     details = [d.model_dump() for d in req.question_details]
@@ -186,11 +292,6 @@ def understand_node(state: DiagnosisState) -> dict:
                     break
 
     # A 组痛点：LLM 识别候选 + 用户勾选确认（代码级，从最新用户消息拆出）累加去重
-    # 注意：resume 轮 raw_idea 不更新（用户消息在 messages 尾部），必须取最后一条 user 消息
-    last_user = next(
-        (m["content"] for m in reversed(state.get("messages", [])) if m.get("role") == "user"),
-        "",
-    )
     pain_confirmed, _ = _parse_pain_confirm(last_user)
     confirmed_points = list(state.get("confirmed_pain_points") or [])
     for p in pain_confirmed:
@@ -198,13 +299,8 @@ def understand_node(state: DiagnosisState) -> dict:
             confirmed_points.append(p)
 
     def _dup(p: str, lst: list[str]) -> bool:
-        """近似去重：措辞略有出入（「自己用/自用」插入字导致子串互不包含），
-        用相似度兜底：完全包含 或 序列相似度 ≥ 0.75 视为同一条"""
-        if any(p in q or q in p for q in lst):
-            return True
-        return any(
-            difflib.SequenceMatcher(None, p, q).ratio() >= 0.75 for q in lst
-        )
+        """近似去重：复用 _similar_text（包含 或 相似度 ≥ 0.75 视为同一条）"""
+        return any(_similar_text(p, q) for q in lst)
 
     # 候选 = 已确认痛点 + 本轮新识别（与已确认/已收集的近似重复都滤掉）
     seen: list[str] = []
@@ -228,6 +324,8 @@ def understand_node(state: DiagnosisState) -> dict:
         "question_details": aligned,
         "pain_points": pain_candidates,
         "confirmed_pain_points": confirmed_points,
+        # W11D4：已回答问题清单（checkpointer 持久，跨轮累积）
+        "answered_questions": answered,
     }
     if tier:
         update["budget_tier"] = tier  # None（没提预算）时保留旧值，不覆盖
