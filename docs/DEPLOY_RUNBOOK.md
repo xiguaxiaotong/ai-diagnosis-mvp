@@ -424,6 +424,11 @@ curl -s http://localhost/api/health   # 预期 {"status":"ok"}
 | P8 | **hf-cache 不挂载** | 容器重建后 bge 模型重新下载（慢 + 可能超时） | prod compose 已挂 `../hf-cache:/data/hf-cache` |
 | P9 | **邮件重置链接域名错误** | 重置密码邮件里的链接是 localhost / 裸 IP | prod compose `BASE_URL=https://__域名__` 已自动拼好；改域名要重 up backend |
 | P10 | **上传大文件 413** | 用户传带图 PDF 失败 | nginx `client_max_body_size 20m` 已配；若调后端限制记得两边同步 |
+| P11 | **Dockerfile 依赖清单与 requirements.txt 脱节**（2026-09-27 实战复现） | 镜像 build 成功但 backend 起不来：`ModuleNotFoundError: pydantic_settings`（本地 venv 手动装过所以从没暴露） | 改依赖两处同步动：requirements.txt + Dockerfile Step 2-6 手写清单；已修（补 pydantic-settings/alembic） |
+| P12 | **镜像漏 COPY alembic**（同日） | `alembic upgrade head` 报 `No 'script_location' key found`——容器里没有 alembic.ini/迁移脚本 | Dockerfile 已补 `COPY alembic.ini` + `COPY alembic`；加新迁移文件记得镜像会自动带上（在 COPY 层之后） |
+| P13 | **Windows Git Bash curl 中文变 GBK**（同日） | verify 第 4 步建项目 400 `error parsing the body`（ASCII 正常、本地复现锁定客户端问题） | 中文 payload 一律 `printf > bodyfile` + `curl -d @bodyfile`（传原始 UTF-8 字节）；verify_deployment.sh 已改 |
+| P14 | **P4 升级：坏 .next 已传服务器**（同日） | frontend 容器 Restarting 循环、首页 502；重传 .next 后 `up -d` 仍不行（镜像 build 时 COPY 的是旧坏目录） | deploy_v2 第 3 步已加 `BUILD_ID` 预检 fail-fast；修复姿势：本地重 build → 重传 .next → `up -d --build frontend` |
+| P15 | **数据校验硬编码 ==**（同日） | 真实运营数据 +1 项目就误报「库被换过」（上线当天 admin 新诊断触发） | deploy_v2 第 7 步已改下限校验（≥12/26/12）：换库/损坏表现为清零或远低于基线，照样抓得住 |
 
 ---
 

@@ -26,8 +26,12 @@ COPY wheels ./wheels
 RUN pip install --no-cache-dir wheels/torch-*.whl && rm -rf wheels
 
 # Step 2: 装轻量 deps（fastapi/sqlalchemy/langgraph 等 < 50MB）
+# ⚠️ 与 requirements.txt 保持同步（W11 Day3 实战踩坑：清单漏了
+#    pydantic-settings/alembic，本地 venv 装过所以没暴露，云端镜像
+#    ModuleNotFoundError 起不来——改依赖两处都要动）
 RUN pip install --no-cache-dir \
-        fastapi 'uvicorn[standard]' python-multipart sqlalchemy pydantic python-dotenv \
+        fastapi 'uvicorn[standard]' python-multipart sqlalchemy pydantic \
+        pydantic-settings alembic python-dotenv \
         langgraph langgraph-checkpoint-sqlite openai \
         -i https://mirrors.aliyun.com/pypi/simple/
 
@@ -55,6 +59,10 @@ RUN pip install --no-cache-dir \
 COPY app ./app
 # scripts/（种子案例等运维脚本）：容器内跑 seed_cases.py 需要
 COPY scripts ./scripts
+# alembic 迁移（W11 Day3 实战踩坑：漏 COPY 导致容器内 alembic upgrade head
+# 报 No 'script_location' key found——deploy_v2 第 6 步迁移靠它）
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
 RUN mkdir -p data
 
 EXPOSE 8000

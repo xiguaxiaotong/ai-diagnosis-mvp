@@ -41,8 +41,10 @@ rollback() {      # 失败统一出口：明确回滚指令
   exit 1
 }
 
-# jq 可缺省：没有就用 python 解析
-_json() { python -c "import json,sys; print(json.load(sys.stdin)$1)" 2>/dev/null; }
+# jq 可缺省：没有就用 python 解析（|| true：解析失败交给后面的
+# [ -n ] 检查走 rollback，别让 set -e 在赋值处静默退出——W11 Day3
+# 实战踩坑：建项目 400 时 PID=$(...) 解析失败直接哑退，无任何报错）
+_json() { python -c "import json,sys; print(json.load(sys.stdin)$1)" 2>/dev/null || true; }
 
 echo "== 部署验证开始 → $BASE_URL（用户 $USER，DRY_RUN=$DRY_RUN）=="
 
@@ -82,11 +84,17 @@ fi
 echo "== [4/5] 建项目 → 201 =="
 if [ "$DRY_RUN" = "1" ]; then
   dry "curl -s -X POST $BASE_URL/api/projects -H 'Authorization: Bearer <token>' \\"
-  dry "     -d '{\"title\":\"smoke_v 部署验证 $SUFFIX\",\"raw_idea\":\"$IDEA\"}'   # 期望 201"
+  dry "     -d @<bodyfile>（title/raw_idea 含中文）   # 期望 201"
 else
+  # 中文 payload 落盘用 -d @file：Windows Git Bash 的 curl 会把命令行里的
+  # 中文按 ANSI(GBK) 转码发出，服务端 JSON 解析直接 400——W11 Day3 实战
+  # 踩坑；@文件传原始 UTF-8 字节，跨平台都对
+  PROJ_BODY=$(mktemp)
+  printf '%s' "{\"title\":\"smoke_v 部署验证 $SUFFIX\",\"raw_idea\":\"$IDEA\"}" > "$PROJ_BODY"
   PROJ_JSON=$(curl -s --max-time 10 -X POST "$BASE_URL/api/projects" \
     -H "Content-Type: application/json" -H "Authorization: Bearer $LTOKEN" \
-    -d "{\"title\":\"smoke_v 部署验证 $SUFFIX\",\"raw_idea\":\"$IDEA\"}") || rollback "3 建项目"
+    -d @"$PROJ_BODY") || { rm -f "$PROJ_BODY"; rollback "3 建项目"; }
+  rm -f "$PROJ_BODY"
   PID=$(echo "$PROJ_JSON" | _json "['id']")
   [ -n "${PID:-}" ] || rollback "3 建项目（$PROJ_JSON）"
 fi
@@ -102,10 +110,13 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 SSE_FILE=$(mktemp)
+SSE_BODY=$(mktemp)
+printf '%s' "{\"project_id\":$PID,\"message\":\"$IDEA\"}" > "$SSE_BODY"
 curl -sN --max-time 300 -X POST "$BASE_URL/api/chat" \
   -H "Content-Type: application/json" -H "Authorization: Bearer $LTOKEN" \
-  -d "{\"project_id\":$PID,\"message\":\"$IDEA\"}" -o "$SSE_FILE" \
-  || { rm -f "$SSE_FILE"; rollback "4 诊断 SSE（超时/断流）"; }
+  -d @"$SSE_BODY" -o "$SSE_FILE" \
+  || { rm -f "$SSE_FILE" "$SSE_BODY"; rollback "4 诊断 SSE（超时/断流）"; }
+rm -f "$SSE_BODY"
 EVENTS=$(grep -c '^data: ' "$SSE_FILE" || true)
 echo "  SSE 事件数：$EVENTS"
 grep -q '"phase"' "$SSE_FILE" || { rm -f "$SSE_FILE"; rollback "4 诊断 SSE（无 phase 事件——LLM 未接通？查 DEEPSEEK_API_KEY）"; }

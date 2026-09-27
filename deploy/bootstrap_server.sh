@@ -26,20 +26,23 @@ echo "== [1/4] 安装 Docker + Compose 插件 =="
 if [ "$DRY_RUN" != "1" ] && command -v docker >/dev/null 2>&1; then
   echo "  docker 已安装：$(docker --version)，跳过安装"
 else
-  run apt-get update -qq
-  run apt-get install -y -qq docker.io docker-compose-v2
+  # 实战踩坑（W11 Day3 部署）：脚本以 ubuntu 用户跑，apt/systemctl/usermod
+  # 不加 sudo 会报 "Interactive authentication required" 且 set -e 中断
+  run sudo apt-get update -qq
+  run sudo apt-get install -y -qq docker.io docker-compose-v2
 fi
-run systemctl enable --now docker
+run sudo systemctl enable --now docker
 if [ "$DRY_RUN" != "1" ]; then docker compose version; fi
 
 echo "== [2/4] ubuntu 用户加入 docker 组（免 sudo 跑 compose）=="
-run usermod -aG docker ubuntu
+run sudo usermod -aG docker ubuntu
 
 echo "== [3/4] 建部署目录树 =="
 run mkdir -p "$BASE_DIR"/backend/data "$BASE_DIR"/backend/logs \
              "$BASE_DIR"/backend/backups "$BASE_DIR"/backend/wheels \
              "$BASE_DIR"/deploy/certs "$BASE_DIR"/hf-cache
-run chown -R ubuntu:ubuntu "$BASE_DIR"
+# 老部署的 db 文件属主是 root（容器写的），归位需 sudo；目录本身归 ubuntu
+run sudo chown -R ubuntu:ubuntu "$BASE_DIR"
 
 echo "== [4/4] 生成 .env 模板（值留空，使用者填；已存在则不覆盖）=="
 if [ -f "$BASE_DIR/.env" ]; then

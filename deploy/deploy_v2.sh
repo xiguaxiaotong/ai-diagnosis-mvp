@@ -66,6 +66,13 @@ run scp _deploy/app.tar.gz "$SERVER:/tmp/app.tar.gz"
 run ssh "$SERVER" "cd $REMOTE_DIR && tar -xzf /tmp/app.tar.gz && rm /tmp/app.tar.gz"
 
 echo "== [3/7] 前端构建产物单独传（.next 先 tar 防嵌套，先清远端旧产物防残留）=="
+# BUILD_ID 预检（W10 Day3 入册的 P4 坑，W11 Day3 实战真踩：增量缓存的
+# .next 缺 BUILD_ID 时 next start 起不来，容器 Restarting 循环、首页 502）
+if [ ! -f frontend/.next/BUILD_ID ]; then
+  echo "❌ frontend/.next/BUILD_ID 不存在——增量缓存损坏或未 build"
+  echo "   修复：cd frontend && npm run build（build 前删 .next）后重跑本脚本"
+  exit 1
+fi
 run bash -c "cd frontend && tar -czf /tmp/next.tgz .next"
 run ssh "$SERVER" "rm -rf $REMOTE_DIR/frontend/.next"
 run scp /tmp/next.tgz "$SERVER:/tmp/next.tgz"
@@ -91,7 +98,7 @@ done
 run ssh "$SERVER" "cd $REMOTE_DIR && IMAGE_TAG=$IMAGE_TAG DEPLOY_DOMAIN=$DOMAIN DEPLOY_SCHEME=$SCHEME $COMPOSE exec -T backend alembic upgrade head" \
   || fail "alembic 迁移"
 
-echo "== [7/7] 数据校验（白名单 12 用户 / 26 项目）+ 探活 =="
+echo "== [7/7] 数据校验（白名单基线 12 用户 / 26 项目 / 12 leads，下限校验）+ 探活 =="
 run ssh "$SERVER" "docker exec diag-backend python -c \"
 import sqlite3
 con = sqlite3.connect('/app/data/sqlite.db')
@@ -99,9 +106,12 @@ u = con.execute('select count(*) from users').fetchone()[0]
 p = con.execute('select count(*) from projects').fetchone()[0]
 l = con.execute('select count(*) from leads').fetchone()[0]
 print(f'users={u} projects={p} leads={l}')
-assert (u, p, l) == (12, 26, 12), f'数据校验不过：期望 12/26/12'
+# 下限校验（W11 Day3 实战教训：硬编码 == 会拦住真实运营数据增长——
+# 上线当天 admin 真实诊断 +1 项目 +1 lead 就误报「库被换过」）；
+# 换库/传输损坏表现为清零或远低于基线，下限能抓住
+assert u >= 12 and p >= 26 and l >= 12, f'数据校验不过：{u}/{p}/{l} 低于基线 12/26/12'
 \"" \
-  || fail "数据校验（users/projects 数量与预期不符——库被换过或传输损坏）"
+  || fail "数据校验（数量低于基线——库被换过或传输损坏）"
 run ssh "$SERVER" "curl -sf http://localhost/api/health" \
   || fail "最终探活"
 

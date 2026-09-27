@@ -46,4 +46,8 @@ opencv-python-headless>=4.8.0   # rapidocr 依赖（headless 避免 GUI 依赖�
 # ===== 开发工具（W9 热身：不进生产镜像，本地/CI 用） =====
 ruff>=0.16.0                    # lint（backend/ruff.toml；python -m ruff check app scripts tests）
 mypy>=1.13.0                    # 类型检查（backend/mypy.ini；strict 白名单见 docs/mypy_baseline.md）
+
+# ===== 生产配置（放这里别放上面「开发工具」——W11 Day3 实战教训： =====
+# pydantic-settings 是 app/config.py 的生产依赖，曾因归错区漏出 Dockerfile
+# 清单，云端镜像 ModuleNotFoundError 起不来）
 pydantic-settings>=2.5.0        # 配置统一管理（app/config.py Settings 类）
