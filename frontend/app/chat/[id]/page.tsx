@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { api, apiStream } from "../../../lib/api";
 import { useRequireAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme";
@@ -37,6 +37,70 @@ interface ReqProfile {
   confirmed_pain_points?: string[];
   budget_tier?: { tier: string; label: string; recap: string } | null;
 }
+
+/** 消息气泡列表（体验修复 20260929：抽成 memo 组件）
+ *  此前整段 msgs.map 内联在 ChatPage 里，输入框 setInput 会让 ChatPage 整体重渲染，
+ *  消息越多、内联 style 越多 → 每敲一个字都要重算全部气泡样式 → 输入框明显卡顿。
+ *  抽离后：msgs / 主题不变时该子树完全跳过重渲染。 */
+const MessageList = memo(function MessageList({
+  msgs,
+  colors,
+  borderStyle,
+}: {
+  msgs: Msg[];
+  colors: any;
+  borderStyle: any;
+}) {
+  return (
+    <>
+      {msgs.map((m, i) => {
+        const clarify = m.role === "assistant" ? clarifyBubbleOf(m.content) : null;
+        if (clarify) {
+          // 追问消息：引导句旁白 + 独立问题小框（不混进聊天气泡，视觉上「旁白感」）
+          return (
+            <div key={i} style={{ textAlign: "center", margin: `0 0 ${space.base}px` }}>
+              <div style={{ fontSize: font.xs, color: colors.text.secondary, margin: `0 0 ${space.sm}px` }}>
+                {clarify.lead}
+              </div>
+              <div style={{
+                display: "inline-block", textAlign: "left", maxWidth: "92%",
+                background: colors.bg.muted, border: borderStyle.card, borderRadius: radius.md,
+                padding: `${space.md}px ${space.lg}px`,
+              }}>
+                {clarify.items.map((q, j) => (
+                  <div key={j} style={{ fontSize: font.sm, color: colors.text.primary, lineHeight: lineHeight.relaxed, padding: `${space.xxs}px 0` }}>
+                    {j + 1}. {q}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: space.base }}>
+            <div
+              style={{
+                maxWidth: "85%",
+                padding: `${space.md}px ${space.lg}px`,
+                borderRadius: radius.xl,
+                fontSize: font.base,
+                lineHeight: lineHeight.relaxed,
+                whiteSpace: "pre-wrap",
+                background: m.role === "user" ? colors.brand.primary : colors.bg.surface,
+                color: m.role === "user" ? colors.text.inverse : colors.text.primary,
+                border: m.role === "user" ? "none" : borderStyle.card,
+                borderBottomRightRadius: m.role === "user" ? radius.sm : radius.xl,
+                borderBottomLeftRadius: m.role === "user" ? radius.xl : radius.sm,
+              }}
+            >
+              {fileTagOf(m.content) ?? m.content}
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+});
 
 interface ProjectDetail {
   id: number;
@@ -91,6 +155,7 @@ export default function ChatPage() {
   const [painConfirmed, setPainConfirmed] = useState(false);
   const [restored, setRestored] = useState(false); // 重进会话已恢复上次填写（顶部提示条）
   const bottomRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null); // 流式 delta 按帧节流句柄
   const autoSentRef = useRef(false); // raw_idea 自动首发守卫（StrictMode 双执行防重）
   const busyRef = useRef(false); // 双击/重提交同步守卫（React state 异步生效前的 race window）
   const loadedForRef = useRef<number | null>(null); // 每个项目只加载一次（防二次执行覆盖 msgs）
@@ -195,9 +260,17 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 本 effect 是「进页面加载一次」语义：send 闭包了 msgs/busy 等全部会话 state，加进 deps 会导致每条消息重放 load（闪烁/竞态）；autoSentRef 已防重复自动发送
   }, [projectId]);
 
-  // 新消息/流式输出时滚到底部
+  // 新消息/流式输出时滚到底部（体验修复 20260929 v2）
+  //  踩坑记录：v1 用 bottomRef.scrollIntoView，在「流式输出 + flex 布局高度重算」时
+  //  会被反复调用且相互打断 → 表现为「上下抽动 / 滚不动」。
+  //  改为：直接设 scrollBox.scrollTop = scrollHeight，一次性同步赋值，不受动画与重排干扰。
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true); // 用户是否"粘"在底部
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollBoxRef.current;
+    if (!el) return;
+    if (!stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight; // 同步赋值：不触发平滑动画，也不依赖 bottomRef 位置
   }, [msgs, streamBuf, busy]);
 
   // 等待计时：busy 期间每秒 +1，让用户知道系统在响应而非卡死
@@ -242,7 +315,9 @@ export default function ChatPage() {
     setError(null);
     setBusy(true);
     setInput("");
-    setQuestions([]);
+    // 注意：这里不再 setQuestions([]) —— 发送瞬间清空问题卡会让消息区高度骤降几百px，
+    // 视口被强拽（用户看到的"上下抽动"）。卡片保留占位、下方用 opacity+pointerEvents 禁点，
+    // 新一轮 meta 到达时 setQuestions 自然覆盖。
     setRestored(false); // 发送后撤掉「已加载上次填写」提示条
     setStage(null);
     setMsgs((m) => [
@@ -300,7 +375,13 @@ export default function ChatPage() {
           setStage(evt.label as string); // 图节点阶段：「正在生成方案…」等
         } else if (type === "delta") {
           acc += evt.content as string;
-          setStreamBuf(acc);
+          // 节流：流式 token 高频到达时按帧合并刷新，避免每 token 触发重渲染 + 滚动抽搐
+          if (rafRef.current == null) {
+            rafRef.current = requestAnimationFrame(() => {
+              rafRef.current = null;
+              setStreamBuf(acc);
+            });
+          }
         } else if (type === "reset") {
           // 机密兜底替换：后端替换了已流出的内容，前端清空重绘
           acc = "";
@@ -323,6 +404,7 @@ export default function ChatPage() {
     } catch (e) {
       setError(String(e));
     } finally {
+      if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       setStreamBuf(null);
       setBusy(false);
       busyRef.current = false;
@@ -417,7 +499,7 @@ export default function ChatPage() {
   }
 
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: `0 ${space.xl}px`, height: "100dvh", display: "flex", flexDirection: "column" }}>
+    <main style={{ maxWidth: 760, margin: "0 auto", padding: `0 ${space.xl}px`, height: "100dvh", maxHeight: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
       <style>{`
         @keyframes blink { 0%,80%,100% { opacity: .25 } 40% { opacity: 1 } }
         .dot { width: 7px; height: 7px; border-radius: 50%; background: ${colors.muted.fg}; display: inline-block; animation: blink 1.2s infinite; }
@@ -427,7 +509,7 @@ export default function ChatPage() {
 
       {/* 顶栏：左上角返回入口固定在此（对话页是 100dvh 布局，消息区独立滚动，
           顶栏天然常驻，无需悬浮栏）。返回目标 = 历史项目列表（层级路由栈） */}
-      <header style={{ padding: `${space.md}px 0`, borderBottom: borderStyle.card, display: "flex", alignItems: "center", gap: space.md }}>
+      <header style={{ padding: `${space.md}px 0`, borderBottom: borderStyle.card, display: "flex", alignItems: "center", gap: space.md, flexShrink: 0 }}>
         <style jsx>{`
           a.back-chat:active { background: ${colors.brand.primaryBgPressed}; opacity: .9; }
         `}</style>
@@ -484,55 +566,19 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* 消息区 */}
-      <div style={{ flex: 1, overflowY: "auto", padding: `${space.xl}px 0` }}>
+      {/* 消息区（体验修复 20260929：滚动位置跟随"用户是否在底部"，不做强制拉伸） */}
+      <div
+        ref={scrollBoxRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          // 距离底部 < 80px 视为"粘在底部" → 新消息继续跟随；上翻后停止跟随
+          stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}        style={{ flex: "1 1 0", minHeight: 0, overflowY: "auto", overflowX: "hidden", WebkitOverflowScrolling: "touch", overflowAnchor: "none", padding: `${space.xl}px 0` }}
+      >
         {!loaded && <p style={{ color: colors.text.secondary, textAlign: "center" }}>加载中…</p>}
 
-        {msgs.map((m, i) => {
-          const clarify = m.role === "assistant" ? clarifyBubbleOf(m.content) : null;
-          if (clarify) {
-            // 追问消息：引导句旁白 + 独立问题小框（不混进聊天气泡，视觉上「旁白感」）
-            return (
-              <div key={i} style={{ textAlign: "center", margin: `0 0 ${space.base}px` }}>
-                <div style={{ fontSize: font.xs, color: colors.text.secondary, margin: `0 0 ${space.sm}px` }}>
-                  {clarify.lead}
-                </div>
-                <div style={{
-                  display: "inline-block", textAlign: "left", maxWidth: "92%",
-                  background: colors.bg.muted, border: borderStyle.card, borderRadius: radius.md,
-                  padding: `${space.md}px ${space.lg}px`,
-                }}>
-                  {clarify.items.map((q, j) => (
-                    <div key={j} style={{ fontSize: font.sm, color: colors.text.primary, lineHeight: lineHeight.relaxed, padding: `${space.xxs}px 0` }}>
-                      {j + 1}. {q}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          }
-          return (
-            <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: space.base }}>
-              <div
-                style={{
-                  maxWidth: "85%",
-                  padding: `${space.md}px ${space.lg}px`,
-                  borderRadius: radius.xl,
-                  fontSize: font.base,
-                  lineHeight: lineHeight.relaxed,
-                  whiteSpace: "pre-wrap",
-                  background: m.role === "user" ? colors.brand.primary : colors.bg.surface,
-                  color: m.role === "user" ? colors.text.inverse : colors.text.primary,
-                  border: m.role === "user" ? "none" : borderStyle.card,
-                  borderBottomRightRadius: m.role === "user" ? radius.sm : radius.xl,
-                  borderBottomLeftRadius: m.role === "user" ? radius.xl : radius.sm,
-                }}
-              >
-                {fileTagOf(m.content) ?? m.content}
-              </div>
-            </div>
-          );
-        })}
+        {/* 消息气泡列表（memo 组件，输入时零重渲染） */}
+        <MessageList msgs={msgs} colors={colors} borderStyle={borderStyle} />
 
         {/* 流式输出中的助手气泡 */}
         {streamBuf !== null && (
@@ -564,9 +610,15 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* 追问快捷选择（A 组升级：问题卡 + 示例点选 + 痛点勾选） */}
-        {phase === "clarify" && questions.length > 0 && !busy && (
-          <div style={{ margin: `${space.xxs}px 0 ${space.base}px` }}>
+        {/* 追问快捷选择（A 组升级：问题卡 + 示例点选 + 痛点勾选）
+            busy 时不卸载只禁点：保住布局高度，避免发送瞬间消息区塌陷抽动 */}
+        {phase === "clarify" && questions.length > 0 && (
+          <div style={{
+            margin: `${space.xxs}px 0 ${space.base}px`,
+            opacity: busy ? 0.45 : 1,
+            pointerEvents: busy ? "none" as const : "auto" as const,
+            transition: "opacity .15s",
+          }}>
             {/* 痛点确认卡：AI 识别的痛点 → 勾选确认（不适用就不勾），确认后方案逐条回应 */}
             {painPoints.length > 0 && !painConfirmed && (
               <div style={{
@@ -677,9 +729,9 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* 方案确认栏 */}
-        {phase === "confirm_wait" && !busy && (
-          <div style={{ margin: `${space.sm}px 0 ${space.xl}px`, display: "flex", gap: space.md }}>
+        {/* 方案确认栏（busy 时保留禁用，防高度塌陷） */}
+        {phase === "confirm_wait" && (
+          <div style={{ margin: `${space.sm}px 0 ${space.xl}px`, display: "flex", gap: space.md, opacity: busy ? 0.45 : 1, pointerEvents: busy ? "none" as const : "auto" as const, transition: "opacity .15s" }}>
             <button
               onClick={() => confirmAction("confirm")}
               style={{ minHeight: touch.large, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.status.success, color: colors.text.inverse, border: "none", borderRadius: radius.md, fontSize: font.base, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: space.xs }}
@@ -695,11 +747,11 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* 完成引导 */}
-        {phase === "done" && !busy && (
+        {/* 完成引导（busy 时保留禁用，防高度塌陷） */}
+        {phase === "done" && (
           <Link
             href={`/project/${projectId}`}
-            style={{ display: "inline-block", margin: `${space.xxs}px 0 ${space.xl}px`, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.brand.primary, color: colors.text.inverse, borderRadius: radius.md, fontSize: font.base, textDecoration: "none" }}
+            style={{ display: "inline-block", margin: `${space.xxs}px 0 ${space.xl}px`, padding: `${space.sm + 1}px ${space.xxl}px`, background: colors.brand.primary, color: colors.text.inverse, borderRadius: radius.md, fontSize: font.base, textDecoration: "none", opacity: busy ? 0.45 : 1, pointerEvents: busy ? "none" : "auto", transition: "opacity .15s" }}
           >
             查看完整方案 →
           </Link>
@@ -807,7 +859,7 @@ export default function ChatPage() {
           </button>
         </div>
       )}
-      <div style={{ borderTop: borderStyle.card, padding: `${space.base}px 0 calc(${space.base}px + env(safe-area-inset-bottom))`, display: "flex", gap: space.md, alignItems: "flex-end" }}>
+      <div style={{ borderTop: borderStyle.card, padding: `${space.base}px 0 calc(${space.base}px + env(safe-area-inset-bottom))`, display: "flex", gap: space.md, alignItems: "flex-end", flexShrink: 0 }}>
         <label
           style={{
             minHeight: touch.large, minWidth: touch.large, display: "flex", alignItems: "center", justifyContent: "center",
