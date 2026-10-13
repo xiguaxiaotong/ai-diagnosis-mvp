@@ -67,3 +67,8 @@ _deploy/*.tar.gz
 
 # 部署/验收输出日志（含运行期返回体与测试账号 token，不入库）
 _deploy/*_output.txt
+
+# 本地工具文件（不上库）
+workbuddy_启动上下文.md
+_extract_font.py
+_restart_backend.py
